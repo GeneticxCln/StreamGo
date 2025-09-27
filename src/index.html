@@ -3,180 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StreamGo - Media Center</title>
+    <title>StreamGo - Modern Media Center</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="app-container">
-        <!-- Navigation Sidebar -->
         <nav class="sidebar">
-            <div class="logo">
-                <h1>StreamGo</h1>
+            <div class="sidebar-header">
+                <h1 class="logo">StreamGo</h1>
             </div>
             <ul class="nav-menu">
-                <li class="nav-item active" data-section="home">
-                    <i class="icon">🏠</i>
-                    <span>Home</span>
-                </li>
-                <li class="nav-item" data-section="discover">
-                    <i class="icon">🔍</i>
-                    <span>Discover</span>
-                </li>
-                <li class="nav-item" data-section="library">
-                    <i class="icon">📚</i>
-                    <span>Library</span>
-                </li>
-                <li class="nav-item" data-section="search">
-                    <i class="icon">🔎</i>
-                    <span>Search</span>
-                </li>
-                <li class="nav-item" data-section="settings">
-                    <i class="icon">⚙️</i>
-                    <span>Settings</span>
-                </li>
+                <li class="nav-item active"><a href="#">Home</a></li>
+                <li class="nav-item"><a href="#">Movies</a></li>
+                <li class="nav-item"><a href="#">TV Shows</a></li>
+                <li class="nav-item"><a href="#">Library</a></li>
             </ul>
+            <div class="sidebar-footer">
+                <a href="#" class="nav-item">Settings</a>
+            </div>
         </nav>
-
-        <!-- Main Content Area -->
         <main class="main-content">
-            <header class="top-bar">
-                <div class="search-container">
-                    <input type="text" id="search-input" placeholder="Search movies, TV shows..." class="search-input">
-                    <button class="search-button">🔍</button>
+            <header class="main-header">
+                <div class="search-bar">
+                    <input type="text" placeholder="Search...">
                 </div>
-                <div class="user-controls">
-                    <button class="theme-toggle" id="theme-toggle">🌙</button>
-                    <div class="user-avatar">👤</div>
+                <div class="user-menu">
+                    <div class="user-avatar"></div>
                 </div>
             </header>
-
-            <!-- Home Section -->
-            <section id="home" class="content-section active">
-                <h2>Welcome to StreamGo</h2>
-                <div class="hero-section">
-                    <h3>Continue Watching</h3>
-                    <div class="content-row" id="continue-watching">
-                        <!-- Continue watching items will be populated here -->
+            <div class="content-area">
+                <section class="hero-section">
+                    <div class="hero-content">
+                        <h2 class="hero-title">Featured Movie</h2>
+                        <p class="hero-description">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+                        <button class="btn btn-primary">Watch Now</button>
                     </div>
-                </div>
-                
-                <div class="content-section-wrapper">
-                    <h3>Popular Movies</h3>
-                    <div class="content-row" id="popular-movies">
-                        <!-- Popular movies will be populated here -->
+                </section>
+                <section class="movie-grid-section">
+                    <h3 class="section-title">Popular Movies</h3>
+                    <div class="movie-grid">
+                        <!-- Movie items will be populated here -->
                     </div>
-                </div>
-
-                <div class="content-section-wrapper">
-                    <h3>Trending TV Shows</h3>
-                    <div class="content-row" id="trending-shows">
-                        <!-- Trending shows will be populated here -->
-                    </div>
-                </div>
-            </section>
-
-            <!-- Discover Section -->
-            <section id="discover" class="content-section">
-                <h2>Discover</h2>
-                <div class="filter-controls">
-                    <select class="filter-dropdown">
-                        <option value="all">All Categories</option>
-                        <option value="movies">Movies</option>
-                        <option value="tv">TV Shows</option>
-                        <option value="documentaries">Documentaries</option>
-                    </select>
-                    <select class="filter-dropdown">
-                        <option value="all-genres">All Genres</option>
-                        <option value="action">Action</option>
-                        <option value="comedy">Comedy</option>
-                        <option value="drama">Drama</option>
-                        <option value="horror">Horror</option>
-                        <option value="sci-fi">Sci-Fi</option>
-                    </select>
-                </div>
-                <div class="content-grid" id="discover-grid">
-                    <!-- Discover content will be populated here -->
-                </div>
-            </section>
-
-            <!-- Library Section -->
-            <section id="library" class="content-section">
-                <h2>My Library</h2>
-                <div class="library-tabs">
-                    <button class="tab-button active" data-tab="watchlist">Watchlist</button>
-                    <button class="tab-button" data-tab="favorites">Favorites</button>
-                    <button class="tab-button" data-tab="watched">Watched</button>
-                </div>
-                <div class="content-grid" id="library-grid">
-                    <!-- Library content will be populated here -->
-                </div>
-            </section>
-
-            <!-- Search Section -->
-            <section id="search" class="content-section">
-                <h2>Search Results</h2>
-                <div class="search-results" id="search-results">
-                    <!-- Search results will be populated here -->
-                </div>
-            </section>
-
-            <!-- Settings Section -->
-            <section id="settings" class="content-section">
-                <h2>Settings</h2>
-                <div class="settings-container">
-                    <div class="setting-group">
-                        <h3>Appearance</h3>
-                        <div class="setting-item">
-                            <label for="theme-select">Theme</label>
-                            <select id="theme-select">
-                                <option value="auto">Auto</option>
-                                <option value="light">Light</option>
-                                <option value="dark">Dark</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-group">
-                        <h3>Playback</h3>
-                        <div class="setting-item">
-                            <label for="quality-select">Default Quality</label>
-                            <select id="quality-select">
-                                <option value="auto">Auto</option>
-                                <option value="1080p">1080p</option>
-                                <option value="720p">720p</option>
-                                <option value="480p">480p</option>
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>
-                                <input type="checkbox" id="autoplay-next">
-                                Autoplay next episode
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="setting-group">
-                        <h3>Addons</h3>
-                        <div class="addon-list" id="addon-list">
-                            <!-- Addons will be populated here -->
-                        </div>
-                        <button class="btn primary" id="add-addon">Add Addon</button>
-                    </div>
-                </div>
-            </section>
+                </section>
+            </div>
         </main>
     </div>
-
-    <!-- Video Player Modal (will be shown when playing content) -->
-    <div class="video-player-modal" id="video-player-modal" style="display: none;">
-        <div class="video-container">
-            <video id="main-video-player" controls>
-                Your browser does not support the video tag.
-            </video>
-            <button class="close-player" id="close-player">✕</button>
-        </div>
-    </div>
-
     <script src="script.js"></script>
 </body>
 </html>

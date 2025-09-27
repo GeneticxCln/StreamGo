@@ -53,6 +53,11 @@ async fn get_addons() -> Result<Vec<Addon>, String> {
     api::get_installed_addons().await.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_media_details(content_id: String) -> Result<MediaItem, String> {
+    api::get_media_details(&content_id).await.map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -89,7 +94,8 @@ pub fn run() {
             search_content,
             get_stream_url,
             install_addon,
-            get_addons
+            get_addons,
+            get_media_details
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

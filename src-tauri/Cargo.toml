@@ -1,0 +1,54 @@
+[package]
+name = "streamgo"
+version = "0.1.0"
+description = "StreamGo - A modern media center and video streaming application"
+authors = ["StreamGo Team"]
+license = "MIT"
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.4.1" }
+
+[dependencies]
+# Core dependencies
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Tauri dependencies
+tauri = { version = "2.8.5" }
+tauri-plugin-log = "2"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# File system utilities
+dirs = "5.0"
+
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# JSON Web Tokens (for authentication)
+jsonwebtoken = "9.0"
+
+# URL parsing
+url = "2.5"
+
+# UUID generation
+uuid = { version = "1.0", features = ["v4"] }

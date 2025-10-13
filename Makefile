@@ -30,9 +30,10 @@ test-all: test test-e2e
 build:
 	cargo build --manifest-path=src-tauri/Cargo.toml
 
-# CI pipeline
+# CI pipeline (matches GitHub Actions: Rust checks + frontend checks + E2E)
 ci: fmt-check clippy test build
 	cd . && npm run ci
+	@echo "Note: E2E tests run separately in GitHub Actions. Run 'make test-e2e' locally."
 
 # Clean build artifacts
 clean:

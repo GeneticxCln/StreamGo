@@ -7,12 +7,13 @@ StreamGo is a cross-platform desktop application built with Rust and Tauri that 
 ### Core Functionality
 - **Content Discovery**: Search movies and TV shows via TMDB API
 - **Library Management**: Personal library with persistent SQLite storage
-- **Video Playback**: Integrated HTML5 video player (HLS support coming in Phase 1)
+- **Video Playback**: Integrated HLS video player with hls.js support
 - **Real Add-on System**: Install, enable, disable, and uninstall add-ons from URLs
 - **Modern UI**: Responsive interface with dark theme and smooth animations
 - **Cross-Platform**: Runs on Windows, macOS, and Linux
+- **Auto-Updates**: Built-in updater with signed releases
 
-### Phase 0 Enhancements (Just Completed!) ✨
+### Recent Improvements ✨
 - **Production-Ready Add-ons**: URL-based installation with manifest validation
 - **Toast Notifications**: Modern, non-intrusive notifications
 - **Modal Dialogs**: Professional confirmation and input dialogs
@@ -20,22 +21,27 @@ StreamGo is a cross-platform desktop application built with Rust and Tauri that 
 - **Error Recovery**: Retry buttons and helpful error messages
 - **Comprehensive Settings**: 23 configurable settings with versioned persistence
 - **Security Hardened**: Strict CSP, no inline scripts, input validation
-- **CI/CD Quality Gates**: ESLint, clippy, and fmt checks
+- **CI/CD Quality Gates**: ESLint, clippy, fmt checks, and E2E tests
+- **TypeScript Migration**: Full TypeScript support with Vite build system
+- **HLS Streaming**: Native HLS video playback support
 
 ### Technical Features
 - **Rust Backend**: Tauri 2 + tokio for async operations
 - **SQLite Database**: Local storage with proper async handling
 - **Type-Safe Models**: Versioned data structures with serde defaults
-- **Modern Frontend**: Vanilla JS (TypeScript migration in Phase 1)
-- **Quality Tooling**: ESLint, cargo fmt, cargo clippy
+- **Modern Frontend**: TypeScript with Vite build system
+- **Quality Tooling**: ESLint, cargo fmt, cargo clippy, Playwright E2E tests
+- **Reproducible Builds**: Cargo.lock committed for consistent dependency resolution
 
 ## Technology Stack
 
-- **Backend**: Rust with Tauri framework
-- **Frontend**: HTML5, CSS3, JavaScript (ES6+)
+- **Backend**: Rust with Tauri 2 framework
+- **Frontend**: TypeScript, HTML5, CSS3, Vite
 - **Database**: SQLite with `rusqlite`
 - **HTTP Client**: reqwest for API integrations
-- **Build System**: Cargo for Rust, npm for frontend assets
+- **Video Player**: hls.js for HLS streaming
+- **Build System**: Cargo for Rust, Vite for frontend
+- **Testing**: Playwright for E2E tests
 
 ## Project Structure
 
@@ -75,12 +81,19 @@ StreamGo/
    cd StreamGo
    ```
 
-2. Install frontend dependencies:
+2. Set up environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your TMDB API key
+   ```
+   Get your free TMDB API key from https://www.themoviedb.org/settings/api
+
+3. Install frontend dependencies:
    ```bash
    npm install
    ```
 
-3. Install Rust dependencies:
+4. Install Rust dependencies:
    ```bash
    cd src-tauri
    cargo fetch
@@ -89,26 +102,20 @@ StreamGo/
 
 ### Development
 
-1. **Set TMDB API Key** (required):
+1. Run in development mode:
    ```bash
-   export TMDB_API_KEY="your_api_key_here"
+   npm run dev    # Starts Vite dev server on port 1420
    ```
-
-2. Install frontend dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Build the frontend:
-   ```bash
-   npm run build
-   ```
-
-4. Run in development mode:
+   In another terminal:
    ```bash
    cd src-tauri
    cargo tauri dev
    ```
+
+2. The application will:
+   - Hot-reload frontend changes automatically
+   - Restart backend on Rust code changes
+   - Run on http://localhost:1420
 
 ### Linting & Quality Checks
 
@@ -119,26 +126,43 @@ npm run lint          # ESLint
 npm run lint:fix      # Fix ESLint issues
 npm run ci            # Run all frontend checks
 
+# E2E tests
+npm run test:e2e      # Run Playwright E2E tests
+npm run test:e2e:ui   # Run E2E tests with UI
+npm run test:e2e:report  # View test report
+
 # Rust checks (using Makefile)
 make fmt              # Format code
 make fmt-check        # Check formatting
 make clippy           # Lint with clippy (warnings as errors)
-make test             # Run tests
+make test             # Run Rust unit tests
+make test-e2e         # Run E2E tests
+make test-all         # Run all tests (Rust + E2E)
 make check            # All Rust checks
 
-# Full CI pipeline (both Rust and Frontend)
+# Full CI pipeline (Rust + Frontend checks)
 make ci
+# Note: E2E tests run separately in CI. Run 'make test-e2e' locally.
 ```
 
 ### CI/CD
 
 The project includes GitHub Actions workflows that enforce:
+
+**Continuous Integration** (runs on push/PR):
 - ✅ Rust code formatting (`cargo fmt --check`)
 - ✅ Clippy linting with warnings as errors (`cargo clippy -- -D warnings`)
-- ✅ All Rust tests pass
+- ✅ All Rust unit tests pass
 - ✅ TypeScript type checking
 - ✅ ESLint compliance
 - ✅ Successful builds
+- ✅ E2E tests with Playwright
+
+**Release Workflow** (runs on version tags):
+- ✅ Cross-platform builds (Windows, macOS, Linux)
+- ✅ Code signing with Tauri signing keys
+- ✅ Automated GitHub releases with installers
+- ✅ Auto-updater JSON manifest generation
 
 All checks must pass before merging pull requests.
 
@@ -155,7 +179,22 @@ The built application will be available in `src-tauri/target/release/bundle/`.
 ## Configuration
 
 ### Environment Variables
+
+Create a `.env` file from `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+Required variables:
 - **TMDB_API_KEY** (required): Your TMDB API key for content search
+  - Backend reads from `std::env::var("TMDB_API_KEY")`
+  - Get your key from https://www.themoviedb.org/settings/api
+
+Optional frontend variables (prefix with `VITE_`):
+- **VITE_TMDB_API_KEY**: If you need the API key in frontend code
+  - Access via `import.meta.env.VITE_TMDB_API_KEY`
+  - Note: Variables prefixed with `VITE_` are exposed to the browser
 
 ### Database
 The application automatically creates a SQLite database in the user's local app data directory:
@@ -228,9 +267,69 @@ The application is designed to integrate with various APIs:
 - **OpenSubtitles**: Subtitle files
 - **Custom Addons**: User-installed content sources
 
+## Auto-Updates
+
+StreamGo includes a built-in auto-updater for seamless updates:
+
+### How It Works
+- **Automatic Checks**: App checks for updates on startup
+- **Signed Updates**: All releases are cryptographically signed with Tauri's signing system
+- **User Control**: Dialog prompts user before downloading/installing updates
+- **Background Download**: Updates download in the background
+- **Safe Installation**: Old version remains until new version successfully installs
+
+### Update Process
+1. App checks GitHub releases endpoint: `https://github.com/GeneticxCln/StreamGo/releases/latest/download/latest.json`
+2. Compares current version with latest available version
+3. If newer version exists, shows update dialog to user
+4. User accepts → downloads signed installer in background
+5. Verifies signature using embedded public key
+6. Installs update and restarts application
+
+### For Maintainers: Creating Signed Releases
+
+To enable signed releases, configure these GitHub secrets:
+
+**Required Secrets** (in repository Settings → Secrets and variables → Actions):
+- `TAURI_SIGNING_PRIVATE_KEY`: Generated signing key for Tauri updater
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Password for the signing key
+- `GITHUB_TOKEN`: Automatically provided by GitHub Actions
+
+**Optional Secrets** (for macOS code signing):
+- `APPLE_CERTIFICATE`: Base64-encoded .p12 certificate
+- `APPLE_CERTIFICATE_PASSWORD`: Certificate password
+- `APPLE_SIGNING_IDENTITY`: Developer ID Application identity
+- `APPLE_ID`: Apple ID email
+- `APPLE_PASSWORD`: App-specific password
+- `APPLE_TEAM_ID`: Apple Developer Team ID
+
+**Generate Tauri Signing Keys**:
+```bash
+# Install Tauri CLI if not already installed
+cargo install tauri-cli
+
+# Generate key pair
+cargo tauri signer generate -w ~/.tauri/streamgo.key
+
+# This creates:
+# - Private key: ~/.tauri/streamgo.key (add to TAURI_SIGNING_PRIVATE_KEY secret)
+# - Public key: printed to console (already in src-tauri/tauri.conf.json)
+```
+
+**Creating a Release**:
+1. Update version in `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`
+2. Commit changes: `git commit -am "chore: bump version to v1.2.3"`
+3. Create and push tag: `git tag v1.2.3 && git push origin v1.2.3`
+4. GitHub Actions automatically builds and signs releases for all platforms
+5. Draft release is created with installers and `latest.json` manifest
+6. Review and publish the release
+
+**Disabling Updates** (for development/testing):
+Set `"active": false` in `src-tauri/tauri.conf.json` under `plugins.updater`.
+
 ## Security
 
-### Phase 0 Security Hardening
+### Security Hardening
 - **No Inline Scripts**: All JavaScript loaded from external files
 - **Strict CSP**: Content Security Policy enforced (no `'unsafe-inline'` for scripts)
 - **Input Validation**: Add-on manifests validated before installation
@@ -238,12 +337,16 @@ The application is designed to integrate with various APIs:
 - **Environment Secrets**: API keys via environment variables, never hardcoded
 - **Add-on Validation**: URL format, manifest structure, and required fields checked
 - **Data Privacy**: All data stored locally in SQLite, no telemetry
+- **Signed Updates**: Cryptographic verification of all auto-updates
+- **Reproducible Builds**: Cargo.lock committed for supply chain security
 
 ### Security Best Practices
-- Set TMDB_API_KEY as environment variable (never commit to code)
+- Use `.env` file for TMDB_API_KEY (never commit secrets to code)
 - Only install add-ons from trusted sources
 - Review add-on manifests before installation
 - Keep Rust and npm dependencies up to date
+- Verify update signatures (handled automatically by Tauri)
+- Review release notes before accepting updates
 
 ## Development Roadmap
 

@@ -29,6 +29,19 @@ export default defineConfig({
     outDir: '../dist',
     // Clear output directory before build
     emptyOutDir: true,
+    // Manual chunk splitting for better caching and smaller initial bundles
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor chunk for heavy dependencies
+          'vendor-hls': ['hls.js'],
+          // Tauri API as separate chunk
+          'vendor-tauri': ['@tauri-apps/api'],
+        },
+      },
+    },
+    // Increase chunk size warning limit (we're splitting intentionally)
+    chunkSizeWarningLimit: 600,
   },
   resolve: {
     alias: {

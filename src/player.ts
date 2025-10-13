@@ -1,5 +1,6 @@
 // Video Player Module with HLS support
-import Hls from 'hls.js';
+// HLS.js is lazy-loaded only when needed to reduce initial bundle size
+type HlsType = typeof import('hls.js').default;
 
 export interface PlayerOptions {
     container: HTMLElement;
@@ -10,9 +11,10 @@ export interface PlayerOptions {
 export class VideoPlayer {
     private container: HTMLElement;
     private video: HTMLVideoElement;
-    private hls: Hls | null = null;
+    private hls: InstanceType<HlsType> | null = null;
     private onCloseCallback?: () => void;
     private isPipActive: boolean = false;
+    private hlsModule: HlsType | null = null;
 
     constructor(options: PlayerOptions) {
         this.container = options.container;
@@ -49,9 +51,9 @@ export class VideoPlayer {
     }
 
     /**
-     * Load HLS stream using hls.js
+     * Load HLS stream using hls.js (lazy-loaded)
      */
-    private loadHlsStream(url: string): void {
+    private async loadHlsStream(url: string): Promise<void> {
         // Cleanup existing HLS instance
         if (this.hls) {
             this.hls.destroy();
@@ -65,9 +67,16 @@ export class VideoPlayer {
             return;
         }
 
+        // Lazy load HLS.js only when needed
+        if (!this.hlsModule) {
+            console.log('Loading HLS.js module...');
+            const hlsImport = await import('hls.js');
+            this.hlsModule = hlsImport.default;
+        }
+
         // Use hls.js for browsers without native HLS support
-        if (Hls.isSupported()) {
-            this.hls = new Hls({
+        if (this.hlsModule.isSupported()) {
+            this.hls = new this.hlsModule({
                 enableWorker: true,
                 lowLatencyMode: false,
             });
@@ -75,22 +84,22 @@ export class VideoPlayer {
             this.hls.loadSource(url);
             this.hls.attachMedia(this.video);
 
-            this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            this.hls.on(this.hlsModule.Events.MANIFEST_PARSED, () => {
                 console.log('HLS manifest parsed, starting playback');
                 this.video.play().catch(err => {
                     console.error('Error playing video:', err);
                 });
             });
 
-            this.hls.on(Hls.Events.ERROR, (_event, data) => {
+            this.hls.on(this.hlsModule.Events.ERROR, (_event, data) => {
                 console.error('HLS error:', data);
-                if (data.fatal) {
+                if (data.fatal && this.hlsModule) {
                     switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
+                        case this.hlsModule.ErrorTypes.NETWORK_ERROR:
                             console.log('Network error, trying to recover...');
                             this.hls?.startLoad();
                             break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
+                        case this.hlsModule.ErrorTypes.MEDIA_ERROR:
                             console.log('Media error, trying to recover...');
                             this.hls?.recoverMediaError();
                             break;
@@ -103,7 +112,7 @@ export class VideoPlayer {
             });
 
             // Setup quality selector if available
-            this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            this.hls.on(this.hlsModule.Events.MANIFEST_PARSED, () => {
                 this.setupQualitySelector();
             });
         } else {

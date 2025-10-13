@@ -109,10 +109,58 @@ impl Database {
             [],
         )?;
 
-        // Create index for playlist items ordering
+        // Create indexes for performance optimization
+        
+        // Playlist items ordering
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_playlist_items_position 
              ON playlist_items(playlist_id, position)",
+            [],
+        )?;
+        
+        // Media items - frequently queried fields
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_items_type 
+             ON media_items(media_type)",
+            [],
+        )?;
+        
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_items_watched 
+             ON media_items(watched)",
+            [],
+        )?;
+        
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_items_added 
+             ON media_items(added_to_library)",
+            [],
+        )?;
+        
+        // Library items - list type filtering
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_library_items_user_type 
+             ON library_items(user_id, list_type)",
+            [],
+        )?;
+        
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_library_items_media 
+             ON library_items(media_id)",
+            [],
+        )?;
+        
+        // Addons - enabled filter
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_addons_enabled 
+             ON addons(enabled)",
+            [],
+        )?;
+        
+        // Playlists - user lookups
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_playlists_user 
+             ON playlists(user_id)",
             [],
         )?;
 

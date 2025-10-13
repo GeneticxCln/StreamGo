@@ -50,6 +50,9 @@ jobs:
         
       - name: Build frontend
         run: npm run build
+      
+      - name: Lint frontend code
+        run: npm run lint
         
       - name: Check Rust code compiles
         run: cd src-tauri && cargo check
@@ -58,10 +61,10 @@ jobs:
         run: cd src-tauri && cargo test
         
       - name: Check Rust formatting
-        run: cd src-tauri && cargo fmt --check || echo "Formatting check failed, but continuing..."
+        run: cd src-tauri && cargo fmt --check
         
-      - name: Run Clippy (allow warnings for now)
-        run: cd src-tauri && cargo clippy || echo "Clippy found issues, but continuing..."
+      - name: Run Clippy
+        run: cd src-tauri && cargo clippy -- -D warnings
 
   build:
     name: Build for ${{ matrix.platform }}

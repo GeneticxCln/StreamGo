@@ -1,53 +1,21 @@
 // StreamGo App - Main Application Logic
+import type { MediaItem, UserPreferences } from './types/tauri';
+import { getTauriInvoke, escapeHtml } from './utils';
+import { Toast, Modal } from './ui-utils';
 
-// HTML sanitization utility
-const escapeHtml = (unsafe) => {
-    if (typeof unsafe !== 'string') return '';
-    return unsafe
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-};
+// Re-export for backwards compatibility
+(window as any).escapeHtml = escapeHtml;
+(window as any).getTauriInvoke = getTauriInvoke;
 
-// Tauri API helper
-const getTauriInvoke = () => {
-    // Debug: Log what's available
-    console.log('Checking Tauri API...');
-    console.log('window.__TAURI_INTERNALS__:', typeof window.__TAURI_INTERNALS__);
-    console.log('window.__TAURI_INVOKE__:', typeof window.__TAURI_INVOKE__);
-    console.log('window.__TAURI__:', typeof window.__TAURI__);
-    if (window.__TAURI__) {
-        console.log('window.__TAURI__.invoke:', typeof window.__TAURI__.invoke);
-        console.log('window.__TAURI__.core:', typeof window.__TAURI__.core);
-        if (window.__TAURI__.core) {
-            console.log('window.__TAURI__.core.invoke:', typeof window.__TAURI__.core.invoke);
-        }
-    }
-    
-    // Try different Tauri API locations for Tauri v2
-    if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
-        console.log('✓ Using window.__TAURI_INTERNALS__.invoke');
-        return window.__TAURI_INTERNALS__.invoke;
-    }
-    if (window.__TAURI_INVOKE__) {
-        console.log('✓ Using window.__TAURI_INVOKE__');
-        return window.__TAURI_INVOKE__;
-    }
-    if (window.__TAURI__ && window.__TAURI__.invoke) {
-        console.log('✓ Using window.__TAURI__.invoke');
-        return window.__TAURI__.invoke;
-    }
-    if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-        console.log('✓ Using window.__TAURI__.core.invoke');
-        return window.__TAURI__.core.invoke;
-    }
-    console.error('✗ Tauri API not found!');
-    return null;
-};
+export class StreamGoApp {
+    private currentSection: string;
+    private previousSection: string;
+    private searchResults: MediaItem[];
+    private libraryItems: MediaItem[];
+    private settings: UserPreferences | null;
+    private currentMedia: MediaItem | null;
+    private mediaMap: Record<string, MediaItem>;
 
-class StreamGoApp {
     constructor() {
         this.currentSection = 'home';
         this.previousSection = 'home';
@@ -55,6 +23,7 @@ class StreamGoApp {
         this.libraryItems = [];
         this.settings = null;
         this.currentMedia = null;
+        this.mediaMap = {};
         this.init();
     }
 
@@ -64,6 +33,7 @@ class StreamGoApp {
         this.loadSettings();
         this.loadLibrary();
         this.loadAddons();
+        this.loadContinueWatching();
     }
 
     setupEventListeners() {
@@ -71,7 +41,7 @@ class StreamGoApp {
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
-                const section = item.dataset.section;
+                const section = (item as HTMLElement).dataset.section;
                 if (section) {
                     this.showSection(section);
                 }
@@ -80,13 +50,16 @@ class StreamGoApp {
 
         // Global search
         const globalSearchBtn = document.getElementById('global-search-btn');
-        const globalSearchInput = document.getElementById('global-search');
+        const globalSearchInput = document.getElementById('global-search') as HTMLInputElement;
         if (globalSearchBtn && globalSearchInput) {
             globalSearchBtn.addEventListener('click', () => {
                 const query = globalSearchInput.value.trim();
                 if (query) {
                     this.showSection('search');
-                    document.getElementById('search-input').value = query;
+                    const searchInput = document.getElementById('search-input') as HTMLInputElement;
+                    if (searchInput) {
+                        searchInput.value = query;
+                    }
                     this.performSearch(query);
                 }
             });
@@ -99,7 +72,7 @@ class StreamGoApp {
 
         // Search section
         const searchBtn = document.getElementById('search-btn');
-        const searchInput = document.getElementById('search-input');
+        const searchInput = document.getElementById('search-input') as HTMLInputElement;
         if (searchBtn && searchInput) {
             searchBtn.addEventListener('click', () => {
                 const query = searchInput.value.trim();
@@ -115,7 +88,7 @@ class StreamGoApp {
         }
     }
 
-    showSection(section) {
+    showSection(section: string): void {
         // Hide all sections
         document.querySelectorAll('.content-section').forEach(sec => {
             sec.classList.remove('active');
@@ -141,7 +114,9 @@ class StreamGoApp {
         this.currentSection = section;
 
         // Reload data if needed
-        if (section === 'library') {
+        if (section === 'home') {
+            this.loadContinueWatching();
+        } else if (section === 'library') {
             this.loadLibrary();
         } else if (section === 'addons') {
             this.loadAddons();
@@ -150,16 +125,17 @@ class StreamGoApp {
         }
     }
 
-    async performSearch(query) {
+    async performSearch(query: string): Promise<void> {
         const resultsEl = document.getElementById('search-results');
 
         const invoke = getTauriInvoke();
-        if (!invoke) {
-            resultsEl.innerHTML = this.renderErrorState(
-                'Tauri API not available',
-                'The backend connection is not available. Please restart the application.',
-                false
-            );
+        if (!invoke || !resultsEl) {
+            if (resultsEl) {
+                resultsEl.innerHTML = this.renderErrorState(
+                    'Tauri API not available',
+                    'The backend connection is not available. Please restart the application.'
+                );
+            }
             return;
         }
 
@@ -188,9 +164,7 @@ class StreamGoApp {
             console.error('Search error:', err);
             resultsEl.innerHTML = this.renderErrorState(
                 'Search Failed',
-                err.toString(),
-                true,
-                () => this.performSearch(query)
+                String(err)
             );
             Toast.error(`Search error: ${err}`);
         }
@@ -206,8 +180,7 @@ class StreamGoApp {
             if (libraryEl) {
                 libraryEl.innerHTML = this.renderErrorState(
                     'Tauri API not available',
-                    'Cannot load library without backend connection.',
-                    false
+                    'Cannot load library without backend connection.'
                 );
             }
             return;
@@ -223,7 +196,7 @@ class StreamGoApp {
             this.libraryItems = items;
 
             if (countEl) {
-                countEl.textContent = items.length;
+                countEl.textContent = String(items.length);
             }
 
             if (items.length === 0) {
@@ -263,15 +236,13 @@ class StreamGoApp {
             if (libraryEl) {
                 libraryEl.innerHTML = this.renderErrorState(
                     'Failed to Load Library',
-                    err.toString(),
-                    true,
-                    () => this.loadLibrary()
+                    String(err)
                 );
             }
         }
     }
 
-    async addToLibrary(item) {
+    async addToLibrary(item: MediaItem): Promise<void> {
         const invoke = getTauriInvoke();
         if (!invoke) {
             Toast.error('Tauri API not available');
@@ -300,6 +271,8 @@ class StreamGoApp {
         try {
             const addons = await invoke('get_addons');
 
+            if (!addonsEl) return;
+
             if (addons.length === 0) {
                 addonsEl.innerHTML = '<p class="empty-message">No add-ons installed yet.</p>';
                 return;
@@ -323,7 +296,9 @@ class StreamGoApp {
 
         } catch (err) {
             console.error('Error loading add-ons:', err);
-            addonsEl.innerHTML = `<p class="error-message">Error loading add-ons: ${err}</p>`;
+            if (addonsEl) {
+                addonsEl.innerHTML = `<p class="error-message">Error loading add-ons: ${err}</p>`;
+            }
         }
     }
 
@@ -334,13 +309,13 @@ class StreamGoApp {
         
         // Card click listeners
         cards.forEach((card, index) => {
-            const mediaId = card.dataset.mediaId;
+            const mediaId = (card as HTMLElement).dataset.mediaId;
             console.log(`Card ${index}: mediaId =`, mediaId);
             
             card.addEventListener('click', (e) => {
                 console.log('Card clicked!', e.target);
                 // Don't navigate if clicking a button
-                if (e.target.closest('button')) {
+                if (e.target && (e.target as HTMLElement).closest('button')) {
                     console.log('Button clicked, not navigating');
                     return;
                 }
@@ -358,8 +333,8 @@ class StreamGoApp {
         document.querySelectorAll('.add-to-library-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const itemId = btn.dataset.id;
-                const item = this.mediaMap[itemId] || this.searchResults.find(i => i.id === itemId);
+                const itemId = (btn as HTMLElement).dataset.id;
+                const item = itemId ? (this.mediaMap[itemId] || this.searchResults.find(i => i.id === itemId)) : undefined;
                 if (item) {
                     this.addToLibrary(item);
                 }
@@ -370,7 +345,7 @@ class StreamGoApp {
         document.querySelectorAll('.play-btn-overlay').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const mediaId = btn.dataset.id;
+                const mediaId = (btn as HTMLElement).dataset.id;
                 if (mediaId) {
                     this.playMedia(mediaId);
                 }
@@ -403,18 +378,23 @@ class StreamGoApp {
         }
     }
 
-    renderMediaCard(item, showAddButton) {
+    renderMediaCard(item: MediaItem, showAddButton: boolean, showProgress = false): string {
         const posterUrl = escapeHtml(item.poster_url || 'https://via.placeholder.com/300x450?text=No+Poster');
         const year = escapeHtml(String(item.year || 'N/A'));
         const mediaType = typeof item.media_type === 'string' ? escapeHtml(item.media_type) : 
-                         (item.media_type?.Movie ? 'Movie' : 
-                          item.media_type?.TvShow ? 'TV Show' : 'Unknown');
+                         ('Movie' in item.media_type ? 'Movie' : 
+                          'TvShow' in item.media_type ? 'TV Show' : 'Unknown');
         const rating = item.rating ? escapeHtml(item.rating.toFixed(1)) : 'N/A';
         const description = item.description || '';
         const truncatedDesc = description.length > 150 ? description.substring(0, 150) + '...' : description;
         const escapedDesc = escapeHtml(truncatedDesc);
         const escapedTitle = escapeHtml(item.title);
         const escapedId = escapeHtml(item.id);
+        
+        // Calculate progress percentage
+        const progress = item.progress || 0;
+        const duration = item.duration ? item.duration * 60 : 0; // duration is in minutes
+        const progressPercent = duration > 0 ? Math.min(100, (progress / duration) * 100) : 0;
         
         // Store media in a map for easy retrieval
         if (!this.mediaMap) this.mediaMap = {};
@@ -424,8 +404,9 @@ class StreamGoApp {
             <div class="movie-card" data-media-id="${escapedId}">
                 <div class="movie-poster">
                     <img src="${posterUrl}" alt="${escapedTitle}" onerror="this.src='https://via.placeholder.com/300x450?text=No+Poster'">
+                    ${showProgress && progress > 0 ? `<div class="progress-bar"><div class="progress-fill" style="width: ${progressPercent}%"></div></div>` : ''}
                     <div class="movie-overlay">
-                        ${showAddButton ? `<button class="add-to-library-btn" data-id="${escapedId}">Add to Library</button>` : `<button class="play-btn-overlay" data-id="${escapedId}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Play</button>`}
+                        ${showAddButton ? `<button class="add-to-library-btn" data-id="${escapedId}">Add to Library</button>` : `<button class="play-btn-overlay" data-id="${escapedId}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>${showProgress ? 'Resume' : 'Play'}</button>`}
                     </div>
                 </div>
                 <div class="movie-info">
@@ -460,8 +441,9 @@ class StreamGoApp {
         }
     }
 
-    getDefaultSettings() {
+    getDefaultSettings(): UserPreferences {
         return {
+            version: 1,
             theme: 'auto',
             default_quality: 'auto',
             video_codec: 'auto',
@@ -525,40 +507,41 @@ class StreamGoApp {
         this.setCheckboxIfExists('analytics-toggle', this.settings.analytics);
     }
 
-    setIfExists(id, value) {
-        const el = document.getElementById(id);
+    setIfExists(id: string, value: string): void {
+        const el = document.getElementById(id) as HTMLSelectElement | HTMLInputElement;
         if (el && value !== undefined) el.value = value;
     }
 
-    setCheckboxIfExists(id, value) {
-        const el = document.getElementById(id);
+    setCheckboxIfExists(id: string, value: boolean): void {
+        const el = document.getElementById(id) as HTMLInputElement;
         if (el && value !== undefined) el.checked = !!value;
     }
 
-    async saveSettings() {
+    async saveSettings(): Promise<void> {
         // Gather all settings from UI
-        const settings = {
-            theme: document.getElementById('theme-select')?.value || 'auto',
-            default_quality: document.getElementById('quality-select')?.value || 'auto',
-            video_codec: document.getElementById('codec-select')?.value || 'auto',
-            max_bitrate: document.getElementById('bitrate-select')?.value || 'auto',
-            hardware_accel: document.getElementById('hardware-accel-toggle')?.checked || false,
-            audio_codec: document.getElementById('audio-codec-select')?.value || 'auto',
-            audio_channels: document.getElementById('audio-channels-select')?.value || 'auto',
-            volume_normalize: document.getElementById('volume-normalize-toggle')?.checked || false,
-            autoplay_next: document.getElementById('autoplay-toggle')?.checked || false,
-            skip_intro: document.getElementById('skip-intro-toggle')?.checked || false,
-            resume_playback: document.getElementById('resume-playback-toggle')?.checked || false,
-            subtitles_enabled: document.getElementById('subtitles-toggle')?.checked || false,
-            subtitle_language: document.getElementById('subtitle-language')?.value || 'en',
-            subtitle_size: document.getElementById('subtitle-size-select')?.value || 'medium',
-            buffer_size: document.getElementById('buffer-size-select')?.value || 'medium',
-            preload_next: document.getElementById('preload-toggle')?.checked || false,
-            torrent_connections: document.getElementById('torrent-connections-select')?.value || '100',
-            cache_size: document.getElementById('cache-size-select')?.value || '1024',
-            player_engine: document.getElementById('player-engine-select')?.value || 'auto',
-            debug_logging: document.getElementById('logging-toggle')?.checked || false,
-            analytics: document.getElementById('analytics-toggle')?.checked || false
+        const settings: UserPreferences = {
+            version: 1,
+            theme: (document.getElementById('theme-select') as HTMLSelectElement)?.value || 'auto',
+            default_quality: (document.getElementById('quality-select') as HTMLSelectElement)?.value || 'auto',
+            video_codec: (document.getElementById('codec-select') as HTMLSelectElement)?.value || 'auto',
+            max_bitrate: (document.getElementById('bitrate-select') as HTMLSelectElement)?.value || 'auto',
+            hardware_accel: (document.getElementById('hardware-accel-toggle') as HTMLInputElement)?.checked || false,
+            audio_codec: (document.getElementById('audio-codec-select') as HTMLSelectElement)?.value || 'auto',
+            audio_channels: (document.getElementById('audio-channels-select') as HTMLSelectElement)?.value || 'auto',
+            volume_normalize: (document.getElementById('volume-normalize-toggle') as HTMLInputElement)?.checked || false,
+            autoplay_next: (document.getElementById('autoplay-toggle') as HTMLInputElement)?.checked || false,
+            skip_intro: (document.getElementById('skip-intro-toggle') as HTMLInputElement)?.checked || false,
+            resume_playback: (document.getElementById('resume-playback-toggle') as HTMLInputElement)?.checked || false,
+            subtitles_enabled: (document.getElementById('subtitles-toggle') as HTMLInputElement)?.checked || false,
+            subtitle_language: (document.getElementById('subtitle-language') as HTMLInputElement)?.value || 'en',
+            subtitle_size: (document.getElementById('subtitle-size-select') as HTMLSelectElement)?.value || 'medium',
+            buffer_size: (document.getElementById('buffer-size-select') as HTMLSelectElement)?.value || 'medium',
+            preload_next: (document.getElementById('preload-toggle') as HTMLInputElement)?.checked || false,
+            torrent_connections: (document.getElementById('torrent-connections-select') as HTMLSelectElement)?.value || '100',
+            cache_size: (document.getElementById('cache-size-select') as HTMLSelectElement)?.value || '1024',
+            player_engine: (document.getElementById('player-engine-select') as HTMLSelectElement)?.value || 'auto',
+            debug_logging: (document.getElementById('logging-toggle') as HTMLInputElement)?.checked || false,
+            analytics: (document.getElementById('analytics-toggle') as HTMLInputElement)?.checked || false
         };
 
         const invoke = getTauriInvoke();
@@ -578,7 +561,7 @@ class StreamGoApp {
         }
     }
 
-    async resetSettings() {
+    async resetSettings(): Promise<void> {
         const confirmed = await Modal.confirm(
             'Are you sure you want to reset all settings to defaults?',
             'Reset Settings'
@@ -601,7 +584,7 @@ class StreamGoApp {
         }
     }
 
-    async clearCache() {
+    async clearCache(): Promise<void> {
         const confirmed = await Modal.confirm(
             'Are you sure you want to clear the cache? This will free up disk space but may slow down initial loading.',
             'Clear Cache'
@@ -624,7 +607,7 @@ class StreamGoApp {
         }
     }
 
-    showMediaDetail(mediaId) {
+    showMediaDetail(mediaId: string): void {
         // Find the media immediately - NO async
         let media = this.mediaMap?.[mediaId] || 
                    this.searchResults.find(m => m.id == mediaId) || 
@@ -648,13 +631,13 @@ class StreamGoApp {
         this.renderMediaDetail(media);
     }
 
-    renderMediaDetail(media) {
+    renderMediaDetail(media: MediaItem): void {
         const posterUrl = escapeHtml(media.poster_url || 'https://via.placeholder.com/300x450?text=No+Poster');
         const backdropUrl = escapeHtml(media.backdrop_url || 'https://via.placeholder.com/1200x500?text=No+Backdrop');
         const year = escapeHtml(String(media.year || 'N/A'));
         const mediaType = typeof media.media_type === 'string' ? escapeHtml(media.media_type) : 
-                         (media.media_type?.Movie ? 'Movie' : 
-                          media.media_type?.TvShow ? 'TV Show' : 'Unknown');
+                         ('Movie' in media.media_type ? 'Movie' : 
+                          'TvShow' in media.media_type ? 'TV Show' : 'Unknown');
         const rating = media.rating ? escapeHtml(media.rating.toFixed(1)) : 'N/A';
         const duration = media.duration ? escapeHtml(`${media.duration} min`) : 'N/A';
         const escapedTitle = escapeHtml(media.title);
@@ -662,12 +645,17 @@ class StreamGoApp {
         const escapedDescription = escapeHtml(media.description || 'No description available.');
         
         // Hero section
-        document.getElementById('detail-hero').innerHTML = `
+        const detailHero = document.getElementById('detail-hero');
+        if (detailHero) {
+            detailHero.innerHTML = `
             <img src="${backdropUrl}" alt="${escapedTitle}" class="detail-backdrop" onerror="this.src='https://via.placeholder.com/1200x500?text=No+Backdrop'">
         `;
+        }
         
         // Content section
-        document.getElementById('detail-content').innerHTML = `
+        const detailContent = document.getElementById('detail-content');
+        if (detailContent) {
+            detailContent.innerHTML = `
             <div>
                 <img src="${posterUrl}" alt="${escapedTitle}" class="detail-poster" onerror="this.src='https://via.placeholder.com/300x450?text=No+Poster'">
             </div>
@@ -697,15 +685,19 @@ class StreamGoApp {
                     <button class="add-btn" onclick="app.addToLibrary(app.currentMedia)">
                         Add to Library
                     </button>
-                    <button class="favorite-btn">
+                    <button class="add-btn" onclick="app.addToWatchlist('${escapedId}')">
+                        + Watchlist
+                    </button>
+                    <button class="favorite-btn" onclick="app.addToFavorites('${escapedId}')">
                         ♥ Favorite
                     </button>
                 </div>
             </div>
         `;
+        }
     }
 
-    async playMedia(mediaId) {
+    async playMedia(mediaId: string): Promise<void> {
         const invoke = getTauriInvoke();
         if (!invoke) {
             Toast.error('Tauri API not available');
@@ -715,40 +707,168 @@ class StreamGoApp {
         try {
             Toast.info('Loading stream...');
             const streamUrl = await invoke('get_stream_url', { content_id: mediaId });
-            this.openPlayer(streamUrl, this.currentMedia?.title || 'Video');
+            
+            // Use the global player instance
+            const player = (window as any).player;
+            if (player) {
+                player.loadVideo(streamUrl, this.currentMedia?.title || 'Video');
+            } else {
+                console.error('Player not initialized');
+                Toast.error('Video player not available');
+            }
         } catch (err) {
             console.error('Error getting stream:', err);
             Toast.error(`Error: ${err}`);
         }
     }
 
-    openPlayer(url, title) {
-        const playerContainer = document.getElementById('video-player-container');
-        const videoSource = document.getElementById('video-source');
-        const videoPlayer = document.getElementById('video-player');
-        const playerTitle = document.getElementById('player-title');
-        
-        videoSource.src = url;
-        playerTitle.textContent = title;
-        videoPlayer.load();
-        playerContainer.style.display = 'flex';
-        videoPlayer.play();
-    }
-
     closePlayer() {
-        const playerContainer = document.getElementById('video-player-container');
-        const videoPlayer = document.getElementById('video-player');
+        const player = (window as any).player;
+        if (player) {
+            player.close();
+        }
         
-        videoPlayer.pause();
-        playerContainer.style.display = 'none';
+        // Update watch progress when closing player
+        if (this.currentMedia) {
+            this.updateWatchProgress();
+        }
     }
 
-    goBack() {
+    async updateWatchProgress() {
+        const invoke = getTauriInvoke();
+        if (!invoke || !this.currentMedia) return;
+
+        const player = (window as any).player;
+        if (!player) return;
+
+        const video = document.getElementById('video-player') as HTMLVideoElement;
+        if (!video) return;
+
+        try {
+            const progress = Math.floor(video.currentTime || 0);
+            const duration = video.duration || 0;
+            const watched = duration > 0 && (progress / duration) > 0.95;
+
+            await invoke('update_watch_progress', { media_id: this.currentMedia.id, progress, watched });
+
+            console.log(`Progress updated: ${progress}s, watched: ${watched}`);
+        } catch (err) {
+            console.error('Error updating watch progress:', err);
+        }
+    }
+
+    // Continue Watching
+    async loadContinueWatching() {
+        const continueWatchingGrid = document.getElementById('continue-watching-grid');
+        const continueWatchingSection = document.getElementById('continue-watching-section');
+        
+        if (!continueWatchingGrid) return;
+
+        const invoke = getTauriInvoke();
+        if (!invoke) {
+            if (continueWatchingSection) {
+                continueWatchingSection.style.display = 'none';
+            }
+            return;
+        }
+
+        try {
+            const items = await invoke('get_continue_watching');
+            
+            if (items.length === 0) {
+                if (continueWatchingSection) {
+                    continueWatchingSection.style.display = 'none';
+                }
+                return;
+            }
+
+            // Show section and render items
+            if (continueWatchingSection) {
+                continueWatchingSection.style.display = 'block';
+            }
+            
+            continueWatchingGrid.innerHTML = items.map(item => this.renderMediaCard(item, false, true)).join('');
+            this.attachCardListeners();
+        } catch (err) {
+            console.error('Error loading continue watching:', err);
+            if (continueWatchingSection) {
+                continueWatchingSection.style.display = 'none';
+            }
+        }
+    }
+
+    // Watchlist
+    async addToWatchlist(mediaId: string): Promise<void> {
+        const invoke = getTauriInvoke();
+        if (!invoke) {
+            Toast.error('Tauri API not available');
+            return;
+        }
+
+        try {
+            await invoke('add_to_watchlist', { media_id: mediaId });
+            Toast.success('Added to watchlist!');
+        } catch (err) {
+            console.error('Error adding to watchlist:', err);
+            Toast.error(`Error: ${err}`);
+        }
+    }
+
+    async removeFromWatchlist(mediaId: string): Promise<void> {
+        const invoke = getTauriInvoke();
+        if (!invoke) {
+            Toast.error('Tauri API not available');
+            return;
+        }
+
+        try {
+            await invoke('remove_from_watchlist', { media_id: mediaId });
+            Toast.success('Removed from watchlist');
+        } catch (err) {
+            console.error('Error removing from watchlist:', err);
+            Toast.error(`Error: ${err}`);
+        }
+    }
+
+    // Favorites
+    async addToFavorites(mediaId: string): Promise<void> {
+        const invoke = getTauriInvoke();
+        if (!invoke) {
+            Toast.error('Tauri API not available');
+            return;
+        }
+
+        try {
+            await invoke('add_to_favorites', { media_id: mediaId });
+            Toast.success('Added to favorites! ♥');
+        } catch (err) {
+            console.error('Error adding to favorites:', err);
+            Toast.error(`Error: ${err}`);
+        }
+    }
+
+    async removeFromFavorites(mediaId: string): Promise<void> {
+        const invoke = getTauriInvoke();
+        if (!invoke) {
+            Toast.error('Tauri API not available');
+            return;
+        }
+
+        try {
+            await invoke('remove_from_favorites', { media_id: mediaId });
+            Toast.success('Removed from favorites');
+        } catch (err) {
+            console.error('Error removing from favorites:', err);
+            Toast.error(`Error: ${err}`);
+        }
+    }
+
+    goBack(): void {
         this.showSection(this.previousSection);
     }
 
     // Utility: Render skeleton grid
-    renderSkeletonGrid(count = 6) {
+    renderSkeletonGrid(count = 6): string {
         const skeletons = Array.from({ length: count }, () => `
             <div class="skeleton-card">
                 <div class="skeleton-poster"></div>
@@ -768,25 +888,19 @@ class StreamGoApp {
     }
 
     // Utility: Render error state
-    renderErrorState(title, description, showRetry = true, retryFn = null) {
-        const retryButton = showRetry && retryFn
-            ? `<button class="retry-btn" onclick="(${retryFn.toString()})()">🔄 Retry</button>`
-            : '';
+    renderErrorState(title: string, description: string): string {
 
         return `
             <div class="error-state">
                 <div class="error-icon">⚠️</div>
                 <h3 class="error-title">${escapeHtml(title)}</h3>
                 <p class="error-description">${escapeHtml(description)}</p>
-                <div class="error-actions">
-                    ${retryButton}
-                </div>
             </div>
         `;
     }
 
     // Utility: Render empty state
-    renderEmptyState(icon, title, description) {
+    renderEmptyState(icon: string, title: string, description: string): string {
         return `
             <div class="empty-state">
                 <div class="empty-icon">${icon}</div>
@@ -797,7 +911,5 @@ class StreamGoApp {
     }
 }
 
-// Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new StreamGoApp();
-});
+// Export for use in main.ts
+// The initialization is now handled by main.ts

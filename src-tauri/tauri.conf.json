@@ -24,7 +24,9 @@
     ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://image.tmdb.org https://via.placeholder.com; media-src 'self' blob: https://commondatastorage.googleapis.com; connect-src 'self' https://api.themoviedb.org https://commondatastorage.googleapis.com; script-src 'self'"
-    },
+    }
+  },
+  "plugins": {
     "updater": {
       "active": true,
       "endpoints": [

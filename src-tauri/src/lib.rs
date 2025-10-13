@@ -2,9 +2,11 @@ use std::sync::{Arc, Mutex};
 
 mod api;
 mod database;
+mod logging;
 mod models;
 
 pub use database::*;
+pub use logging::*;
 pub use models::*;
 
 // Application state
@@ -530,10 +532,24 @@ async fn reorder_playlist(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize logging system first
+    if let Some(app_data_dir) = dirs::data_local_dir() {
+        let log_dir = app_data_dir.join("StreamGo").join("logs");
+        if let Err(e) = logging::init_logging(log_dir) {
+            eprintln!("Failed to initialize logging: {}", e);
+        }
+    }
+
+    logging::log_startup_info();
+
     // Initialize database
     let database = match Database::new() {
-        Ok(db) => db,
+        Ok(db) => {
+            tracing::info!("Database initialized successfully");
+            db
+        }
         Err(e) => {
+            tracing::error!(error = %e, "Failed to initialize database");
             eprintln!("Failed to initialize database: {}", e);
             eprintln!("The application cannot continue without a database.");
             eprintln!("Please ensure you have write permissions to your local app data directory.");
@@ -545,29 +561,27 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-
+        .setup(|_app| {
             // Initialize application data directories
             if let Some(app_data_dir) = dirs::data_local_dir() {
                 let streamgo_dir = app_data_dir.join("StreamGo");
                 if let Err(e) = std::fs::create_dir_all(&streamgo_dir) {
-                    log::error!("Failed to create app data directory: {}", e);
+                    tracing::error!(error = %e, "Failed to create app data directory");
                 } else {
-                    log::info!("App data directory: {:?}", streamgo_dir);
+                    tracing::info!(directory = ?streamgo_dir, "App data directory initialized");
                 }
             }
 
-            log::info!("StreamGo initialized successfully");
+            tracing::info!("StreamGo setup completed successfully");
 
             Ok(())
+        })
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                logging::log_shutdown();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_library_items,

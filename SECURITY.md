@@ -45,8 +45,33 @@ StreamGo implements multiple layers of security to protect users:
 ### Network Security
 - HTTPS enforced where possible
 - Certificate validation for all external connections
-- No data collection or analytics without consent
+- **No telemetry or analytics**: StreamGo does not collect, transmit, or sell user data
 - User agent includes app name and version for transparency
+
+### Privacy & Logging
+- **No Telemetry**: StreamGo does not send any usage data, analytics, or telemetry to external servers
+- **Local Logging Only**: All logs are stored locally on your device for debugging purposes
+- **User Control**: You can review or delete logs at any time from the log directory
+- **Opt-In by Design**: Any future analytics features (if ever added) will be strictly opt-in
+
+**Log Storage Locations**:
+- **Linux**: `~/.local/share/StreamGo/logs/`
+- **macOS**: `~/Library/Application Support/StreamGo/logs/`
+- **Windows**: `%LOCALAPPDATA%\StreamGo\logs\`
+
+**What's Logged**:
+- Application startup/shutdown events
+- Error messages and stack traces
+- Database operations (debug mode only)
+- API requests to TMDB and addons
+- User actions like searches, library additions (local only)
+
+**Log Rotation**: Logs rotate daily and old logs are automatically cleaned up
+
+**Privacy Guarantee**: StreamGo is open source and you can verify that no telemetry is sent by reviewing the source code. All network requests are to:
+1. TMDB API (for metadata only)
+2. Addon servers you've explicitly installed
+3. Streaming sources selected by you
 
 ## Reporting a Vulnerability
 
@@ -178,8 +203,8 @@ We thank the following security researchers for responsibly disclosing vulnerabi
 
 For security-related questions or concerns:
 - **Security Email**: [Your security email]
-- **General Issues**: [GitHub Issues](https://github.com/quigsdev/StreamGo/issues)
-- **Discussion**: [GitHub Discussions](https://github.com/quigsdev/StreamGo/discussions)
+- **General Issues**: [GitHub Issues](https://github.com/GeneticxCln/StreamGo/issues)
+- **Discussion**: [GitHub Discussions](https://github.com/GeneticxCln/StreamGo/discussions)
 
 ## License
 

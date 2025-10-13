@@ -15,7 +15,10 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
-    "ci": "npm run type-check && npm run lint && npm run build"
+    "ci": "npm run type-check && npm run lint && npm run build",
+    "tauri:dev": "cd src-tauri && cargo tauri dev",
+    "tauri:build": "cd src-tauri && cargo tauri build",
+    "tauri:build:debug": "cd src-tauri && cargo build"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

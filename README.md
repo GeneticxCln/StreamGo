@@ -202,6 +202,36 @@ The application automatically creates a SQLite database in the user's local app 
 - **macOS**: `~/Library/Application Support/StreamGo/streamgo.db`
 - **Linux**: `~/.local/share/StreamGo/streamgo.db`
 
+### Logging
+
+StreamGo uses structured logging with automatic daily rotation for debugging and troubleshooting.
+
+**Log Locations**:
+- **Linux**: `~/.local/share/StreamGo/logs/streamgo.log`
+- **macOS**: `~/Library/Application Support/StreamGo/logs/streamgo.log`
+- **Windows**: `%LOCALAPPDATA%\StreamGo\logs\streamgo.log`
+
+**Features**:
+- **Daily Rotation**: New log file created each day
+- **Structured Format**: JSON-like format with timestamps, levels, and context
+- **Multiple Levels**: ERROR, WARN, INFO, DEBUG, TRACE
+- **Development Mode**: Set `RUST_LOG=debug` for verbose logging
+- **Production Mode**: Defaults to INFO level
+
+**Viewing Logs**:
+```bash
+# Tail logs in real-time (Linux/macOS)
+tail -f ~/.local/share/StreamGo/logs/streamgo.log
+
+# View last 100 lines
+tail -n 100 ~/.local/share/StreamGo/logs/streamgo.log
+
+# Search for errors
+grep ERROR ~/.local/share/StreamGo/logs/streamgo.log
+```
+
+**Privacy**: Logs are stored locally only. StreamGo does not send telemetry or analytics data to any external servers. See `SECURITY.md` for full privacy details.
+
 ### Add-on System
 Install add-ons from URLs (must provide manifest.json):
 

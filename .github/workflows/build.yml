@@ -76,11 +76,19 @@ jobs:
         include:
           - platform: 'linux'
             os: 'ubuntu-latest'
-          # Disable other platforms for now to reduce CI load
+          # Multi-platform builds (uncomment when CI minutes allow):
+          # These are commented out to conserve GitHub Actions minutes during development.
+          # To enable cross-platform CI builds, uncomment the platforms below:
+          # 
           # - platform: 'macos'
-          #   os: 'macos-latest' 
+          #   os: 'macos-latest'
+          #   # Note: macOS builds use ~10x more CI minutes than Linux
+          # 
           # - platform: 'windows'
           #   os: 'windows-latest'
+          #   # Note: Windows builds may require additional setup for system dependencies
+          #
+          # The release.yml workflow already builds for all platforms on tagged releases.
     
     steps:
       - uses: actions/checkout@v4

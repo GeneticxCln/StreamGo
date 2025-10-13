@@ -1,0 +1,115 @@
+name: Feature Request
+description: Suggest an idea or enhancement for StreamGo
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! We appreciate your input in making StreamGo better.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see
+      placeholder: I'd like to be able to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or features?
+      placeholder: I also thought about...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: feature-area
+    attributes:
+      label: Feature Area
+      description: Which part of StreamGo does this feature relate to?
+      options:
+        - User Interface
+        - Video Player
+        - Library Management
+        - Addon System
+        - Search & Discovery
+        - Settings & Preferences
+        - Performance
+        - Security
+        - Cross-platform Support
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority (Your Opinion)
+      description: How important is this feature to you?
+      options:
+        - Critical - I can't use StreamGo without this
+        - High - I would use StreamGo much more with this
+        - Medium - Nice to have
+        - Low - Just an idea
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Describe how you would use this feature
+      placeholder: |
+        As a user, I would...
+        This would help me...
+    validations:
+      required: false
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups or Examples
+      description: |
+        If applicable, add mockups, screenshots from other apps, or links to examples.
+        You can drag and drop images here.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, links, or references about the feature request here.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: existing
+    attributes:
+      label: Existing Issues
+      description: Have you searched for similar feature requests?
+      options:
+        - label: I have searched existing issues and this is not a duplicate
+          required: true
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Willingness to Contribute
+      description: Would you be willing to help implement this feature?
+      options:
+        - label: I would be willing to submit a PR for this feature
+          required: false

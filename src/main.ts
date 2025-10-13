@@ -1,4 +1,3 @@
-import './tauri-init';
 import './ui-utils';
 import './styles.css';
 import { StreamGoApp } from './app';

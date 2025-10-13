@@ -6,60 +6,64 @@ test.describe('Library Features', () => {
     await page.waitForTimeout(1000);
   });
 
-  test('should display watchlist view', async ({ page }) => {
-    // Navigate to watchlist
-    await page.click('.sidebar-btn[data-view="watchlist"]');
-    await page.waitForTimeout(500);
-    
-    // Check if watchlist view is active
-    const watchlistBtn = page.locator('.sidebar-btn[data-view="watchlist"]');
-    await expect(watchlistBtn).toHaveClass(/active/);
-    
-    // Check for watchlist content area
-    const contentArea = page.locator('#content');
-    await expect(contentArea).toBeVisible();
-  });
-
-  test('should display favorites view', async ({ page }) => {
-    // Navigate to favorites
-    await page.click('.sidebar-btn[data-view="favorites"]');
-    await page.waitForTimeout(500);
-    
-    // Check if favorites view is active
-    const favoritesBtn = page.locator('.sidebar-btn[data-view="favorites"]');
-    await expect(favoritesBtn).toHaveClass(/active/);
-    
-    // Check for favorites content area
-    const contentArea = page.locator('#content');
-    await expect(contentArea).toBeVisible();
-  });
-
-  test('should display continue watching view', async ({ page }) => {
-    // Navigate to continue watching
-    await page.click('.sidebar-btn[data-view="continue-watching"]');
-    await page.waitForTimeout(500);
-    
-    // Check if continue watching view is active
-    const continueBtn = page.locator('.sidebar-btn[data-view="continue-watching"]');
-    await expect(continueBtn).toHaveClass(/active/);
-    
-    // Check for continue watching content area
-    const contentArea = page.locator('#content');
-    await expect(contentArea).toBeVisible();
-  });
-
   test('should display library view', async ({ page }) => {
     // Navigate to library
-    await page.click('.sidebar-btn[data-view="library"]');
+    await page.click('.nav-item[data-section="library"] a');
     await page.waitForTimeout(500);
     
     // Check if library view is active
-    const libraryBtn = page.locator('.sidebar-btn[data-view="library"]');
+    const libraryBtn = page.locator('.nav-item[data-section="library"]');
     await expect(libraryBtn).toHaveClass(/active/);
     
     // Check for library content area
-    const contentArea = page.locator('#content');
-    await expect(contentArea).toBeVisible();
+    const librarySection = page.locator('#library-section');
+    await expect(librarySection).toHaveClass(/active/);
+    
+    // Check for library grid
+    const libraryGrid = page.locator('#library-grid');
+    await expect(libraryGrid).toBeVisible();
+  });
+
+  test('should display playlists view', async ({ page }) => {
+    // Navigate to playlists
+    await page.click('.nav-item[data-section="playlists"] a');
+    await page.waitForTimeout(500);
+    
+    // Check if playlists view is active
+    const playlistsBtn = page.locator('.nav-item[data-section="playlists"]');
+    await expect(playlistsBtn).toHaveClass(/active/);
+    
+    // Check for playlists content area
+    const playlistsSection = page.locator('#playlists-section');
+    await expect(playlistsSection).toHaveClass(/active/);
+  });
+
+  test('should display search view', async ({ page }) => {
+    // Navigate to search
+    await page.click('.nav-item[data-section="search"] a');
+    await page.waitForTimeout(500);
+    
+    // Check if search view is active
+    const searchBtn = page.locator('.nav-item[data-section="search"]');
+    await expect(searchBtn).toHaveClass(/active/);
+    
+    // Check for search section
+    const searchSection = page.locator('#search-section');
+    await expect(searchSection).toHaveClass(/active/);
+    
+    // Check for search input
+    const searchInput = page.locator('#search-input');
+    await expect(searchInput).toBeVisible();
+  });
+
+  test('should display home section by default', async ({ page }) => {
+    // Home should be active on load
+    const homeSection = page.locator('#home-section');
+    await expect(homeSection).toHaveClass(/active/);
+    
+    // Check for hero section
+    const heroSection = page.locator('.hero-section');
+    await expect(heroSection).toBeVisible();
   });
 });
 
@@ -69,19 +73,17 @@ test.describe('Detail Page Actions', () => {
     await page.waitForTimeout(1000);
   });
 
-  test('should have action buttons in detail view', async ({ page }) => {
-    // Note: This test assumes there's media to select
-    // In a real scenario, you might need to mock data or ensure test data exists
+  test('should have detail section in DOM', async ({ page }) => {
+    // Check if detail section exists
+    const detailSection = page.locator('#detail-section');
+    await expect(detailSection).toBeAttached();
     
-    // Check if detail view elements exist when needed
-    const detailView = page.locator('#detail-view');
+    // Check for detail container
+    const detailContainer = page.locator('.detail-container');
+    await expect(detailContainer).toBeAttached();
     
-    // These buttons should exist in the DOM (even if not visible initially)
-    const addToWatchlistBtn = page.locator('#add-to-watchlist-btn');
-    const toggleFavoriteBtn = page.locator('#toggle-favorite-btn');
-    
-    // Verify buttons exist in DOM structure
-    await expect(addToWatchlistBtn).toBeAttached();
-    await expect(toggleFavoriteBtn).toBeAttached();
+    // Check for back button
+    const backBtn = page.locator('.detail-container .back-btn');
+    await expect(backBtn).toBeAttached();
   });
 });

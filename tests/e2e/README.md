@@ -57,23 +57,22 @@ Core application tests covering:
 
 ### `library.spec.ts`
 Library features tests covering:
-- Watchlist view
-- Favorites view
-- Continue watching view
-- Library view
-- Detail page action buttons
+- Library view and grid
+- Playlists view
+- Search view navigation
+- Home section display
+- Detail page structure
 
 ### `player.spec.ts`
 Video player tests covering:
-- Player container and controls
+- Player container and video element
+- Player header and title
 - Quality selector
-- Subtitle controls
-- Play/pause functionality
-- Volume controls
-- Progress bar
-- Fullscreen support
+- Subtitle controls and toggle
+- Native HTML5 video controls
+- Picture-in-Picture button and functionality
 - Close button
-- Keyboard shortcuts support
+- Keyboard shortcuts hints
 
 ## Test Configuration
 

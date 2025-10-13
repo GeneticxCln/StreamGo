@@ -171,19 +171,6 @@ export interface TauriCommands {
 // Global Tauri API
 declare global {
   interface Window {
-    __TAURI__: {
-      invoke<K extends keyof TauriCommands>(
-        _cmd: K,
-        _args?: TauriCommands[K]['args']
-      ): Promise<TauriCommands[K]['return']>;
-      core?: {
-        invoke: typeof window.__TAURI__.invoke;
-      };
-    };
-    __TAURI_INTERNALS__: {
-      invoke: typeof window.__TAURI__.invoke;
-    };
-    __TAURI_INVOKE__?: typeof window.__TAURI__.invoke;
     Toast: {
       show(_message: string, _type?: 'info' | 'success' | 'error' | 'warning', _duration?: number): HTMLElement;
       success(_message: string, _duration?: number): HTMLElement;
@@ -205,6 +192,7 @@ declare global {
       alert(_message: string, _title?: string): Promise<boolean | null>;
       prompt(_message: string, _title?: string, _placeholder?: string, _defaultValue?: string): Promise<string | null>;
     };
+    playlistManager?: import('../playlists').PlaylistManager;
   }
 }
 

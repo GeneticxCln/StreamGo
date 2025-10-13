@@ -8,10 +8,10 @@ test.describe('StreamGo App', () => {
     await page.waitForTimeout(1000);
     
     // Check if sidebar elements are present
-    await expect(page.locator('#sidebar')).toBeVisible();
-    await expect(page.locator('.sidebar-btn[data-view="home"]')).toBeVisible();
-    await expect(page.locator('.sidebar-btn[data-view="library"]')).toBeVisible();
-    await expect(page.locator('.sidebar-btn[data-view="watchlist"]')).toBeVisible();
+    await expect(page.locator('.sidebar')).toBeVisible();
+    await expect(page.locator('.nav-item[data-section="home"]')).toBeVisible();
+    await expect(page.locator('.nav-item[data-section="library"]')).toBeVisible();
+    await expect(page.locator('.nav-item[data-section="addons"]')).toBeVisible();
   });
 
   test('should navigate between views', async ({ page }) => {
@@ -19,19 +19,19 @@ test.describe('StreamGo App', () => {
     await page.waitForTimeout(1000);
     
     // Click library button
-    await page.click('.sidebar-btn[data-view="library"]');
+    await page.click('.nav-item[data-section="library"] a');
     await page.waitForTimeout(500);
     
     // Check if library view is active
-    const libraryBtn = page.locator('.sidebar-btn[data-view="library"]');
+    const libraryBtn = page.locator('.nav-item[data-section="library"]');
     await expect(libraryBtn).toHaveClass(/active/);
     
     // Click home button
-    await page.click('.sidebar-btn[data-view="home"]');
+    await page.click('.nav-item[data-section="home"] a');
     await page.waitForTimeout(500);
     
     // Check if home view is active
-    const homeBtn = page.locator('.sidebar-btn[data-view="home"]');
+    const homeBtn = page.locator('.nav-item[data-section="home"]');
     await expect(homeBtn).toHaveClass(/active/);
   });
 
@@ -39,12 +39,12 @@ test.describe('StreamGo App', () => {
     await page.goto('/');
     await page.waitForTimeout(1000);
     
-    // Check if search input exists
-    await expect(page.locator('#searchInput')).toBeVisible();
+    // Check if search input exists (global header search)
+    await expect(page.locator('#global-search')).toBeVisible();
     
     // Type in search
-    await page.fill('#searchInput', 'test movie');
-    const searchValue = await page.inputValue('#searchInput');
+    await page.fill('#global-search', 'test movie');
+    const searchValue = await page.inputValue('#global-search');
     expect(searchValue).toBe('test movie');
   });
 
@@ -53,7 +53,7 @@ test.describe('StreamGo App', () => {
     await page.waitForTimeout(1000);
     
     // Check player container exists (even if hidden initially)
-    const playerContainer = page.locator('#player-container');
+    const playerContainer = page.locator('#video-player-container');
     await expect(playerContainer).toBeAttached();
   });
 });

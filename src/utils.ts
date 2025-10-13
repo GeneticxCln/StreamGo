@@ -1,4 +1,5 @@
 // Utility functions for StreamGo
+import { invoke } from '@tauri-apps/api/core';
 
 /**
  * HTML sanitization utility
@@ -14,26 +15,15 @@ export const escapeHtml = (unsafe: string | null | undefined): string => {
 };
 
 /**
- * Get Tauri invoke function
+ * Re-export invoke from Tauri API for convenience
+ */
+export { invoke };
+
+/**
+ * Legacy wrapper for backward compatibility
+ * @deprecated Use invoke directly from '@tauri-apps/api/core' instead
  */
 export const getTauriInvoke = () => {
-  console.log('Checking Tauri API...');
-  console.log('window.__TAURI_INTERNALS__:', typeof window.__TAURI_INTERNALS__);
-  console.log('window.__TAURI__:', typeof window.__TAURI__);
-  
-  if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
-    console.log('✓ Using window.__TAURI_INTERNALS__.invoke');
-    return window.__TAURI_INTERNALS__.invoke;
-  }
-  if (window.__TAURI__ && window.__TAURI__.invoke) {
-    console.log('✓ Using window.__TAURI__.invoke');
-    return window.__TAURI__.invoke;
-  }
-  if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-    console.log('✓ Using window.__TAURI__.core.invoke');
-    return window.__TAURI__.core.invoke;
-  }
-  
-  console.error('✗ Tauri API not found!');
-  return null;
+  console.log('✓ Using official @tauri-apps/api');
+  return invoke;
 };

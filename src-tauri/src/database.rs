@@ -623,10 +623,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_playlist_items(
-        &self,
-        playlist_id: &str,
-    ) -> Result<Vec<MediaItem>, anyhow::Error> {
+    pub fn get_playlist_items(&self, playlist_id: &str) -> Result<Vec<MediaItem>, anyhow::Error> {
         let stmt = self.conn.prepare(
             "SELECT m.id, m.title, m.media_type, m.year, m.genre, m.description, 
                     m.poster_url, m.backdrop_url, m.rating, m.duration, 
@@ -671,7 +668,7 @@ impl Database {
         let mut query = String::from(
             "SELECT id, title, media_type, year, genre, description, poster_url, backdrop_url, 
                     rating, duration, added_to_library, watched, progress 
-             FROM media_items WHERE 1=1"
+             FROM media_items WHERE 1=1",
         );
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -685,7 +682,8 @@ impl Database {
 
         // Genre filter
         if !filters.genres.is_empty() {
-            let genre_conditions: Vec<String> = filters.genres
+            let genre_conditions: Vec<String> = filters
+                .genres
                 .iter()
                 .map(|_| "genre LIKE ?".to_string())
                 .collect();
@@ -697,7 +695,8 @@ impl Database {
 
         // Media type filter
         if !filters.media_types.is_empty() {
-            let type_conditions: Vec<String> = filters.media_types
+            let type_conditions: Vec<String> = filters
+                .media_types
                 .iter()
                 .map(|mt| {
                     let type_str = match mt {
@@ -711,7 +710,10 @@ impl Database {
                     format!("'{}'", type_str)
                 })
                 .collect();
-            query.push_str(&format!(" AND media_type IN ({})", type_conditions.join(", ")));
+            query.push_str(&format!(
+                " AND media_type IN ({})",
+                type_conditions.join(", ")
+            ));
         }
 
         // Year range
@@ -1035,15 +1037,23 @@ mod tests {
         let playlist_id = "playlist1";
 
         // Create playlist
-        db.create_playlist(playlist_id, "My Playlist", Some("Test description"), user_id)
-            .unwrap();
+        db.create_playlist(
+            playlist_id,
+            "My Playlist",
+            Some("Test description"),
+            user_id,
+        )
+        .unwrap();
 
         // Get playlists for user
         let playlists = db.get_playlists(user_id).unwrap();
         assert_eq!(playlists.len(), 1);
         assert_eq!(playlists[0].id, playlist_id);
         assert_eq!(playlists[0].name, "My Playlist");
-        assert_eq!(playlists[0].description, Some("Test description".to_string()));
+        assert_eq!(
+            playlists[0].description,
+            Some("Test description".to_string())
+        );
         assert_eq!(playlists[0].item_count, 0);
         assert_eq!(playlists[0].user_id, user_id);
     }
@@ -1169,8 +1179,7 @@ mod tests {
         assert_eq!(items.len(), 2);
 
         // Remove one item
-        db.remove_item_from_playlist(playlist_id, "movie1")
-            .unwrap();
+        db.remove_item_from_playlist(playlist_id, "movie1").unwrap();
 
         // Verify removal
         let items = db.get_playlist_items(playlist_id).unwrap();

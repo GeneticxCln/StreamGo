@@ -25,7 +25,6 @@
   ],
   "globals": {
     "escapeHtml": "readonly",
-    "getTauriInvoke": "readonly",
     "Toast": "readonly",
     "Modal": "readonly"
   },

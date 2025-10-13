@@ -1,11 +1,10 @@
 // StreamGo App - Main Application Logic
 import type { MediaItem, UserPreferences } from './types/tauri';
-import { getTauriInvoke, escapeHtml } from './utils';
+import { invoke, escapeHtml } from './utils';
 import { Toast, Modal } from './ui-utils';
 
 // Re-export for backwards compatibility
 (window as any).escapeHtml = escapeHtml;
-(window as any).getTauriInvoke = getTauriInvoke;
 
 export class StreamGoApp {
     private currentSection: string;
@@ -128,14 +127,7 @@ export class StreamGoApp {
     async performSearch(query: string): Promise<void> {
         const resultsEl = document.getElementById('search-results');
 
-        const invoke = getTauriInvoke();
-        if (!invoke || !resultsEl) {
-            if (resultsEl) {
-                resultsEl.innerHTML = this.renderErrorState(
-                    'Tauri API not available',
-                    'The backend connection is not available. Please restart the application.'
-                );
-            }
+        if (!resultsEl) {
             return;
         }
 
@@ -143,7 +135,7 @@ export class StreamGoApp {
             // Show skeleton loaders
             resultsEl.innerHTML = this.renderSkeletonGrid(8);
 
-            const results = await invoke('search_content', { query });
+            const results = await invoke<MediaItem[]>('search_content', { query });
             this.searchResults = results;
 
             if (results.length === 0) {
@@ -175,24 +167,13 @@ export class StreamGoApp {
         const recentLibraryEl = document.getElementById('recent-library');
         const countEl = document.getElementById('library-count');
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            if (libraryEl) {
-                libraryEl.innerHTML = this.renderErrorState(
-                    'Tauri API not available',
-                    'Cannot load library without backend connection.'
-                );
-            }
-            return;
-        }
-
         try {
             // Show skeleton while loading
             if (libraryEl) {
                 libraryEl.innerHTML = this.renderSkeletonGrid(6);
             }
 
-            const items = await invoke('get_library_items');
+            const items = await invoke<MediaItem[]>('get_library_items');
             this.libraryItems = items;
 
             if (countEl) {
@@ -243,12 +224,6 @@ export class StreamGoApp {
     }
 
     async addToLibrary(item: MediaItem): Promise<void> {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Tauri API not available');
-            return;
-        }
-
         try {
             await invoke('add_to_library', { item });
             Toast.success(`"${item.title}" added to library!`);
@@ -262,14 +237,8 @@ export class StreamGoApp {
     async loadAddons() {
         const addonsEl = document.getElementById('addons-list');
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            if (addonsEl) addonsEl.innerHTML = '<p class="error-message">Tauri API not available</p>';
-            return;
-        }
-
         try {
-            const addons = await invoke('get_addons');
+            const addons = await invoke<any[]>('get_addons');
 
             if (!addonsEl) return;
 
@@ -361,15 +330,9 @@ export class StreamGoApp {
         );
         if (!url) return;
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Tauri API not available');
-            return;
-        }
-
         try {
             Toast.info('Installing add-on...');
-            const addonId = await invoke('install_addon', { addon_url: url });
+            const addonId = await invoke<string>('install_addon', { addon_url: url });
             Toast.success(`Add-on installed successfully! ID: ${addonId}`);
             await this.loadAddons();
         } catch (err) {
@@ -423,16 +386,8 @@ export class StreamGoApp {
     }
 
     async loadSettings() {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            console.log('Tauri API not available, using default settings');
-            this.settings = this.getDefaultSettings();
-            this.applySettingsToUI();
-            return;
-        }
-
         try {
-            this.settings = await invoke('get_settings');
+            this.settings = await invoke<UserPreferences>('get_settings');
             this.applySettingsToUI();
         } catch (err) {
             console.error('Error loading settings:', err);
@@ -544,13 +499,6 @@ export class StreamGoApp {
             analytics: (document.getElementById('analytics-toggle') as HTMLInputElement)?.checked || false
         };
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            this.settings = settings;
-            Toast.warning('Settings saved in memory only (Tauri API not available)');
-            return;
-        }
-
         try {
             await invoke('save_settings', { settings });
             this.settings = settings;
@@ -571,13 +519,10 @@ export class StreamGoApp {
             this.settings = this.getDefaultSettings();
             this.applySettingsToUI();
             
-            const invoke = getTauriInvoke();
-            if (invoke) {
-                try {
-                    await invoke('save_settings', { settings: this.settings });
-                } catch (err) {
-                    console.error('Error resetting settings:', err);
-                }
+            try {
+                await invoke('save_settings', { settings: this.settings });
+            } catch (err) {
+                console.error('Error resetting settings:', err);
             }
             
             Toast.success('Settings reset to defaults!');
@@ -591,12 +536,6 @@ export class StreamGoApp {
         );
         
         if (confirmed) {
-            const invoke = getTauriInvoke();
-            if (!invoke) {
-                Toast.error('Tauri API not available');
-                return;
-            }
-            
             try {
                 // In a real implementation, this would call a Rust function to clear cache
                 Toast.success('Cache cleared successfully! Freed up space.');
@@ -698,15 +637,9 @@ export class StreamGoApp {
     }
 
     async playMedia(mediaId: string): Promise<void> {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Tauri API not available');
-            return;
-        }
-
         try {
             Toast.info('Loading stream...');
-            const streamUrl = await invoke('get_stream_url', { content_id: mediaId });
+            const streamUrl = await invoke<string>('get_stream_url', { content_id: mediaId });
             
             // Use the global player instance
             const player = (window as any).player;
@@ -735,8 +668,7 @@ export class StreamGoApp {
     }
 
     async updateWatchProgress() {
-        const invoke = getTauriInvoke();
-        if (!invoke || !this.currentMedia) return;
+        if (!this.currentMedia) return;
 
         const player = (window as any).player;
         if (!player) return;
@@ -764,16 +696,8 @@ export class StreamGoApp {
         
         if (!continueWatchingGrid) return;
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            if (continueWatchingSection) {
-                continueWatchingSection.style.display = 'none';
-            }
-            return;
-        }
-
         try {
-            const items = await invoke('get_continue_watching');
+            const items = await invoke<MediaItem[]>('get_continue_watching');
             
             if (items.length === 0) {
                 if (continueWatchingSection) {
@@ -799,12 +723,6 @@ export class StreamGoApp {
 
     // Watchlist
     async addToWatchlist(mediaId: string): Promise<void> {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Tauri API not available');
-            return;
-        }
-
         try {
             await invoke('add_to_watchlist', { media_id: mediaId });
             Toast.success('Added to watchlist!');
@@ -815,12 +733,6 @@ export class StreamGoApp {
     }
 
     async removeFromWatchlist(mediaId: string): Promise<void> {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Tauri API not available');
-            return;
-        }
-
         try {
             await invoke('remove_from_watchlist', { media_id: mediaId });
             Toast.success('Removed from watchlist');
@@ -832,12 +744,6 @@ export class StreamGoApp {
 
     // Favorites
     async addToFavorites(mediaId: string): Promise<void> {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Tauri API not available');
-            return;
-        }
-
         try {
             await invoke('add_to_favorites', { media_id: mediaId });
             Toast.success('Added to favorites! ♥');
@@ -848,12 +754,6 @@ export class StreamGoApp {
     }
 
     async removeFromFavorites(mediaId: string): Promise<void> {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Tauri API not available');
-            return;
-        }
-
         try {
             await invoke('remove_from_favorites', { media_id: mediaId });
             Toast.success('Removed from favorites');

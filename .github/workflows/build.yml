@@ -37,7 +37,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           
       - name: Rust Cache
@@ -46,7 +46,7 @@ jobs:
           workspaces: src-tauri
           
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
         
       - name: Build frontend
         run: npm run build
@@ -106,7 +106,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           
       - name: Rust Cache
@@ -115,7 +115,7 @@ jobs:
           workspaces: src-tauri
           
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
         
       - name: Build frontend
         run: npm run build

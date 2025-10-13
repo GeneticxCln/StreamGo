@@ -1,6 +1,6 @@
 // Playlist Management Module
 import type { Playlist, MediaItem } from './types/tauri';
-import { getTauriInvoke } from './utils';
+import { invoke } from './utils';
 import { Toast, Modal } from './ui-utils';
 
 export class PlaylistManager {
@@ -33,14 +33,8 @@ export class PlaylistManager {
     }
 
     async loadPlaylists() {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
-
         try {
-            this.playlists = await invoke('get_playlists', {});
+            this.playlists = await invoke<Playlist[]>('get_playlists', {});
             this.renderPlaylists();
         } catch (err) {
             console.error('Failed to load playlists:', err);
@@ -167,14 +161,8 @@ export class PlaylistManager {
 
         if (!name) return;
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
-
         try {
-            const playlistId = await invoke('create_playlist', { name, description: undefined });
+            const playlistId = await invoke<string>('create_playlist', { name, description: undefined });
             Toast.success('Playlist created successfully');
             await this.loadPlaylists();
             this.viewPlaylist(playlistId);
@@ -185,21 +173,15 @@ export class PlaylistManager {
     }
 
     async viewPlaylist(playlistId: string) {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
-
         try {
-            const playlist = await invoke('get_playlist', { playlist_id: playlistId });
+            const playlist = await invoke<Playlist | null>('get_playlist', { playlist_id: playlistId });
             if (!playlist) {
                 Toast.error('Playlist not found');
                 return;
             }
 
             this.currentPlaylist = playlist;
-            this.currentPlaylistItems = await invoke('get_playlist_items', { playlist_id: playlistId });
+            this.currentPlaylistItems = await invoke<MediaItem[]>('get_playlist_items', { playlist_id: playlistId });
             
             this.showPlaylistDetail();
         } catch (err) {
@@ -436,9 +418,6 @@ export class PlaylistManager {
     private async savePlaylistOrder(mediaIds: string[]) {
         if (!this.currentPlaylist) return;
 
-        const invoke = getTauriInvoke();
-        if (!invoke) return;
-
         try {
             await invoke('reorder_playlist', {
                 playlist_id: this.currentPlaylist.id,
@@ -454,12 +433,6 @@ export class PlaylistManager {
     }
 
     async addToPlaylist(playlistId: string, mediaId: string) {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
-
         try {
             await invoke('add_to_playlist', { playlist_id: playlistId, media_id: mediaId });
             Toast.success('Added to playlist');
@@ -482,12 +455,6 @@ export class PlaylistManager {
         );
 
         if (!confirmed) return;
-
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
 
         try {
             await invoke('remove_from_playlist', { playlist_id: playlistId, media_id: mediaId });
@@ -516,12 +483,6 @@ export class PlaylistManager {
 
         if (!name || name === playlist.name) return;
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
-
         try {
             await invoke('update_playlist', {
                 playlist_id: playlistId,
@@ -548,12 +509,6 @@ export class PlaylistManager {
 
         if (!confirmed) return;
 
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
-
         try {
             await invoke('delete_playlist', { playlist_id: playlistId });
             Toast.success('Playlist deleted');
@@ -577,14 +532,8 @@ export class PlaylistManager {
     }
 
     private async playPlaylist(playlistId: string) {
-        const invoke = getTauriInvoke();
-        if (!invoke) {
-            Toast.error('Backend connection not available');
-            return;
-        }
-
         try {
-            const items = await invoke('get_playlist_items', { playlist_id: playlistId });
+            const items = await invoke<MediaItem[]>('get_playlist_items', { playlist_id: playlistId });
             if (items.length === 0) {
                 Toast.warning('This playlist is empty');
                 return;

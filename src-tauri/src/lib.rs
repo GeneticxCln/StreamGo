@@ -390,13 +390,8 @@ async fn create_playlist(
 
     tokio::task::spawn_blocking(move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.create_playlist(
-            &playlist_id_clone,
-            &name,
-            description.as_deref(),
-            &user_id,
-        )
-        .map_err(|e| e.to_string())?;
+        db.create_playlist(&playlist_id_clone, &name, description.as_deref(), &user_id)
+            .map_err(|e| e.to_string())?;
         Ok(playlist_id_clone)
     })
     .await

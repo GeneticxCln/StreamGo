@@ -1,10 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+mod addon_protocol;
 mod api;
 mod database;
 mod logging;
 mod models;
 
+pub use addon_protocol::*;
 pub use database::*;
 pub use logging::*;
 pub use models::*;

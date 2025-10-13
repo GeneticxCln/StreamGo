@@ -1,148 +1,120 @@
-# StreamGo - Modern Media Center
+<div align="center">
 
-StreamGo is a cross-platform desktop application built with Rust and Tauri that replicates the core functionality of Stremio. It allows users to discover, watch, and organize movies, TV shows, and other content through an extensible addon system.
+# 🎬 StreamGo
 
-## Features
+### Modern Cross-Platform Media Center
 
-### Core Functionality
-- **Content Discovery**: Search movies and TV shows via TMDB API
-- **Library Management**: Personal library with persistent SQLite storage
-- **Video Playback**: Integrated HLS video player with hls.js support
-- **Real Add-on System**: Install, enable, disable, and uninstall add-ons from URLs
-- **Modern UI**: Responsive interface with dark theme and smooth animations
-- **Cross-Platform**: Runs on Windows, macOS, and Linux
-- **Auto-Updates**: Built-in updater with signed releases
+[![Rust](https://img.shields.io/badge/rust-1.77.2+-orange.svg)](https://www.rust-lang.org)
+[![Tauri](https://img.shields.io/badge/tauri-2.0-blue.svg)](https://tauri.app)
+[![TypeScript](https://img.shields.io/badge/typescript-5.3-blue.svg)](https://www.typescriptlang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-### Recent Improvements ✨
-- **Production-Ready Add-ons**: URL-based installation with manifest validation
-- **Toast Notifications**: Modern, non-intrusive notifications
-- **Modal Dialogs**: Professional confirmation and input dialogs
-- **Skeleton Loaders**: Smooth loading states for better UX
-- **Error Recovery**: Retry buttons and helpful error messages
-- **Comprehensive Settings**: 23 configurable settings with versioned persistence
-- **Security Hardened**: Strict CSP, no inline scripts, input validation
-- **CI/CD Quality Gates**: ESLint, clippy, fmt checks, and E2E tests
-- **TypeScript Migration**: Full TypeScript support with Vite build system
-- **HLS Streaming**: Native HLS video playback support
+A powerful, privacy-focused media center built with Rust & Tauri.
 
-### Technical Features
-- **Rust Backend**: Tauri 2 + tokio for async operations
-- **SQLite Database**: Local storage with proper async handling
-- **Type-Safe Models**: Versioned data structures with serde defaults
-- **Modern Frontend**: TypeScript with Vite build system
-- **Quality Tooling**: ESLint, cargo fmt, cargo clippy, Playwright E2E tests
-- **Reproducible Builds**: Cargo.lock committed for consistent dependency resolution
+Discover • Watch • Organize
 
-## Technology Stack
+[Features](#-features) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
 
-- **Backend**: Rust with Tauri 2 framework
-- **Frontend**: TypeScript, HTML5, CSS3, Vite
-- **Database**: SQLite with `rusqlite`
-- **HTTP Client**: reqwest for API integrations
-- **Video Player**: hls.js for HLS streaming
-- **Build System**: Cargo for Rust, Vite for frontend
-- **Testing**: Playwright for E2E tests
+</div>
 
-## Project Structure
+---
 
-```
-StreamGo/
-├── src/                    # Frontend source files
-│   ├── index.html         # Main HTML file
-│   ├── styles.css         # CSS styles with theming
-│   └── script.js          # JavaScript application logic
-├── src-tauri/             # Rust backend
-│   ├── src/
-│   │   ├── main.rs        # Entry point
-│   │   ├── lib.rs         # Main application logic and Tauri commands
-│   │   ├── models.rs      # Data structures and types
-│   │   ├── database.rs    # SQLite database operations
-│   │   └── api.rs         # External API integrations
-│   ├── Cargo.toml         # Rust dependencies
-│   └── tauri.conf.json    # Tauri configuration
-├── dist/                  # Built frontend assets (generated)
-├── package.json           # Frontend build scripts
-└── README.md             # This file
-```
+## ✨ Features
 
-## Getting Started
+<table>
+<tr>
+<td width="50%">
+
+### 🎯 Core
+- 🔍 **Smart Search** - TMDB-powered content discovery
+- 📚 **Library Management** - Organize your collection
+- 🎥 **HLS Player** - Smooth video playback
+- 🧩 **Addon System** - Extensible content sources
+- 🎨 **Modern UI** - Clean, responsive interface
+- 🔄 **Auto-Updates** - Secure, signed releases
+
+</td>
+<td width="50%">
+
+### 🛡️ Built-In
+- 🔐 **Privacy First** - No telemetry, local-only data
+- 🔒 **Security Hardened** - Strict CSP, input validation
+- ⚡ **High Performance** - Rust backend, optimized frontend
+- 🖥️ **Cross-Platform** - Windows, macOS, Linux
+- 📱 **Responsive** - Adapts to any screen size
+- 🌙 **Dark Theme** - Easy on the eyes
+
+</td>
+</tr>
+</table>
+
+## 🚀 Quick Start
 
 ### Prerequisites
-- **Rust** (1.77.2 or later) - Install from https://rustup.rs
-- **Node.js** (18 or later) and npm
-- **TMDB API Key** - Get free key from https://www.themoviedb.org/settings/api
-- System dependencies for Tauri (varies by platform, see Tauri docs)
+
+```bash
+# Required
+- Rust 1.77.2+     → https://rustup.rs
+- Node.js 18+      → https://nodejs.org
+- TMDB API Key     → https://www.themoviedb.org/settings/api
+```
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd StreamGo
-   ```
+```bash
+# 1. Clone the repository
+git clone https://github.com/GeneticxCln/StreamGo.git
+cd StreamGo
 
-2. Set up environment variables:
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your TMDB API key
-   ```
-   Get your free TMDB API key from https://www.themoviedb.org/settings/api
+# 2. Set up environment
+cp .env.example .env
+# Edit .env and add your TMDB API key
 
-3. Install frontend dependencies:
-   ```bash
-   npm install
-   ```
+# 3. Install dependencies
+npm install
 
-4. Install Rust dependencies:
-   ```bash
-   cd src-tauri
-   cargo fetch
-   cd ..
-   ```
+# 4. Run development build
+npm run dev              # Terminal 1: Vite dev server
+npm run tauri:dev        # Terminal 2: Tauri app
+```
 
-### Development
-
-1. Run in development mode:
-   ```bash
-   npm run dev    # Starts Vite dev server on port 1420
-   ```
-   In another terminal:
-   ```bash
-   cd src-tauri
-   cargo tauri dev
-   ```
-
-2. The application will:
-   - Hot-reload frontend changes automatically
-   - Restart backend on Rust code changes
-   - Run on http://localhost:1420
-
-### Linting & Quality Checks
+### Build for Production
 
 ```bash
-# Frontend checks
-npm run type-check    # TypeScript type checking
-npm run lint          # ESLint
-npm run lint:fix      # Fix ESLint issues
-npm run ci            # Run all frontend checks
+npm run build
+npm run tauri:build      # Creates installer in src-tauri/target/release/bundle/
+```
 
-# E2E tests
-npm run test:e2e      # Run Playwright E2E tests
-npm run test:e2e:ui   # Run E2E tests with UI
-npm run test:e2e:report  # View test report
+## 📖 Documentation
 
-# Rust checks (using Makefile)
-make fmt              # Format code
-make fmt-check        # Check formatting
-make clippy           # Lint with clippy (warnings as errors)
-make test             # Run Rust unit tests
-make test-e2e         # Run E2E tests
-make test-all         # Run all tests (Rust + E2E)
-make check            # All Rust checks
+### For Users
+- **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)** - Navigate efficiently
+- **[Security & Privacy](SECURITY.md)** - No telemetry, local data only
+- **[Auto-Updates](SECURITY.md#auto-updates)** - How updates work
 
-# Full CI pipeline (Rust + Frontend checks)
-make ci
-# Note: E2E tests run separately in CI. Run 'make test-e2e' locally.
+### For Developers  
+- **[Contributing Guide](CONTRIBUTING.md)** - Development setup & guidelines
+- **[CI/CD Troubleshooting](docs/CI-CD-Troubleshooting.md)** - Fix build issues
+- **[Code Signing](docs/CODE_SIGNING.md)** - Release signing process
+- **[Release Process](docs/RELEASE_PROCESS.md)** - Creating releases
+
+## 🛠️ Development
+
+### Available Scripts
+
+```bash
+# Development
+npm run dev             # Start Vite dev server
+npm run tauri:dev       # Run Tauri app
+
+# Quality Checks
+npm run type-check      # TypeScript validation
+npm run lint            # ESLint
+npm run test:e2e        # Playwright E2E tests
+
+# Rust (Makefile)
+make check              # All Rust checks (fmt, clippy, test)
+make ci                 # Full CI pipeline
 ```
 
 ### CI/CD
@@ -176,249 +148,80 @@ All checks must pass before merging pull requests.
 
 The built application will be available in `src-tauri/target/release/bundle/`.
 
-## Configuration
+## 🔧 Tech Stack
 
-### Environment Variables
+<table>
+<tr>
+<td>
 
-Create a `.env` file from `.env.example`:
+**Backend**
+- Rust & Tauri 2
+- SQLite database
+- Tokio async runtime
+- Reqwest HTTP client
 
-```bash
-cp .env.example .env
-```
+</td>
+<td>
 
-Required variables:
-- **TMDB_API_KEY** (required): Your TMDB API key for content search
-  - Backend reads from `std::env::var("TMDB_API_KEY")`
-  - Get your key from https://www.themoviedb.org/settings/api
+**Frontend**  
+- TypeScript
+- Vite build system
+- HLS.js player
+- Native CSS
 
-Optional frontend variables (prefix with `VITE_`):
-- **VITE_TMDB_API_KEY**: If you need the API key in frontend code
-  - Access via `import.meta.env.VITE_TMDB_API_KEY`
-  - Note: Variables prefixed with `VITE_` are exposed to the browser
+</td>
+<td>
 
-### Database
-The application automatically creates a SQLite database in the user's local app data directory:
-- **Windows**: `%LOCALAPPDATA%\StreamGo\streamgo.db`
-- **macOS**: `~/Library/Application Support/StreamGo/streamgo.db`
-- **Linux**: `~/.local/share/StreamGo/streamgo.db`
+**Testing & CI**
+- Playwright E2E
+- Cargo tests
+- GitHub Actions
+- ESLint + Clippy
 
-### Logging
+</td>
+</tr>
+</table>
 
-StreamGo uses structured logging with automatic daily rotation for debugging and troubleshooting.
+## 🤝 Contributing
 
-**Log Locations**:
-- **Linux**: `~/.local/share/StreamGo/logs/streamgo.log`
-- **macOS**: `~/Library/Application Support/StreamGo/logs/streamgo.log`
-- **Windows**: `%LOCALAPPDATA%\StreamGo\logs\streamgo.log`
+We welcome contributions! Here's how to get started:
 
-**Features**:
-- **Daily Rotation**: New log file created each day
-- **Structured Format**: JSON-like format with timestamps, levels, and context
-- **Multiple Levels**: ERROR, WARN, INFO, DEBUG, TRACE
-- **Development Mode**: Set `RUST_LOG=debug` for verbose logging
-- **Production Mode**: Defaults to INFO level
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Make** your changes following our [Contributing Guide](CONTRIBUTING.md)
+4. **Test** your changes (`make check` + `npm run ci`)
+5. **Commit** with [conventional commits](https://www.conventionalcommits.org)
+6. **Push** to your branch
+7. **Open** a Pull Request
 
-**Viewing Logs**:
-```bash
-# Tail logs in real-time (Linux/macOS)
-tail -f ~/.local/share/StreamGo/logs/streamgo.log
+### Code Standards
+- ✅ TypeScript type-safe code
+- ✅ ESLint compliance  
+- ✅ Rust fmt + clippy clean
+- ✅ Tests for new features
+- ✅ Clear commit messages
 
-# View last 100 lines
-tail -n 100 ~/.local/share/StreamGo/logs/streamgo.log
+### Project Status
 
-# Search for errors
-grep ERROR ~/.local/share/StreamGo/logs/streamgo.log
-```
+**✅ Phase 0 Complete** - Stabilization & Security  
+**🔄 Phase 1 In Progress** - TypeScript & HLS Player  
+**📋 Phase 2 Planned** - Advanced Addon Protocol  
 
-**Privacy**: Logs are stored locally only. StreamGo does not send telemetry or analytics data to any external servers. See `SECURITY.md` for full privacy details.
+See [EVOLUTION_ROADMAP.md](EVOLUTION_ROADMAP.md) for the complete roadmap.
 
-### Add-on System
-Install add-ons from URLs (must provide manifest.json):
+---
 
-**Add-on Types**:
-- **Content Providers**: Supply streaming links and catalog data
-- **Metadata Providers**: Supply movie/show information, posters, etc.
-- **Subtitle Providers**: Supply subtitle files
-- **Player Extensions**: Custom playback functionality
+<div align="center">
 
-**Manifest Format**:
-```json
-{
-  "id": "addon-id",
-  "name": "Add-on Name",
-  "version": "1.0.0",
-  "description": "Add-on description",
-  "resources": ["catalog", "stream", "meta"],
-  "types": ["movie", "series"],
-  "catalogs": [...]
-}
-```
+## 📜 License
 
-**Management Commands** (via Tauri):
-- `install_addon(addonUrl)` - Install from URL
-- `enable_addon(addonId)` - Enable an installed add-on
-- `disable_addon(addonId)` - Disable an add-on
-- `uninstall_addon(addonId)` - Remove an add-on
+MIT License - see [LICENSE](LICENSE) for details
 
-## Architecture
+## 💙 Acknowledgments
 
-### Backend (Rust)
-- **Database Layer**: SQLite operations for persistence
-- **API Layer**: HTTP client for external service integration
-- **Tauri Commands**: Exposed functions for frontend communication
-- **Models**: Type-safe data structures with serde serialization
+Built with [Tauri](https://tauri.app) • Inspired by [Stremio](https://www.stremio.com)  
+Powered by [TMDB](https://www.themoviedb.org) • Made with ❤️ by the community
 
-### Frontend (JavaScript)
-- **App Class**: Main application logic and state management
-- **Navigation**: Section-based routing system
-- **Theme System**: Dynamic dark/light theme switching
-- **Content Rendering**: Dynamic UI generation for media items
-- **Search**: Real-time search with debouncing
+**[Star ⭐](https://github.com/GeneticxCln/StreamGo)** the project if you find it useful!
 
-### Communication
-Frontend and backend communicate through Tauri's invoke system:
-```javascript
-// Frontend calls Rust function
-const results = await window.__TAURI__.invoke('search_content', { query: 'movie name' });
-```
-
-```rust
-// Rust function exposed to frontend
-#[tauri::command]
-async fn search_content(query: String) -> Result<Vec<MediaItem>, String> {
-    // Implementation
-}
-```
-
-## API Integration
-
-The application is designed to integrate with various APIs:
-- **TMDB**: Movie and TV show metadata
-- **OpenSubtitles**: Subtitle files
-- **Custom Addons**: User-installed content sources
-
-## Auto-Updates
-
-StreamGo includes a built-in auto-updater for seamless updates:
-
-### How It Works
-- **Automatic Checks**: App checks for updates on startup
-- **Signed Updates**: All releases are cryptographically signed with Tauri's signing system
-- **User Control**: Dialog prompts user before downloading/installing updates
-- **Background Download**: Updates download in the background
-- **Safe Installation**: Old version remains until new version successfully installs
-
-### Update Process
-1. App checks GitHub releases endpoint: `https://github.com/GeneticxCln/StreamGo/releases/latest/download/latest.json`
-2. Compares current version with latest available version
-3. If newer version exists, shows update dialog to user
-4. User accepts → downloads signed installer in background
-5. Verifies signature using embedded public key
-6. Installs update and restarts application
-
-### For Maintainers: Creating Signed Releases
-
-To enable signed releases, configure these GitHub secrets:
-
-**Required Secrets** (in repository Settings → Secrets and variables → Actions):
-- `TAURI_SIGNING_PRIVATE_KEY`: Generated signing key for Tauri updater
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Password for the signing key
-- `GITHUB_TOKEN`: Automatically provided by GitHub Actions
-
-**Optional Secrets** (for macOS code signing):
-- `APPLE_CERTIFICATE`: Base64-encoded .p12 certificate
-- `APPLE_CERTIFICATE_PASSWORD`: Certificate password
-- `APPLE_SIGNING_IDENTITY`: Developer ID Application identity
-- `APPLE_ID`: Apple ID email
-- `APPLE_PASSWORD`: App-specific password
-- `APPLE_TEAM_ID`: Apple Developer Team ID
-
-**Generate Tauri Signing Keys**:
-```bash
-# Install Tauri CLI if not already installed
-cargo install tauri-cli
-
-# Generate key pair
-cargo tauri signer generate -w ~/.tauri/streamgo.key
-
-# This creates:
-# - Private key: ~/.tauri/streamgo.key (add to TAURI_SIGNING_PRIVATE_KEY secret)
-# - Public key: printed to console (already in src-tauri/tauri.conf.json)
-```
-
-**Creating a Release**:
-1. Update version in `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`
-2. Commit changes: `git commit -am "chore: bump version to v1.2.3"`
-3. Create and push tag: `git tag v1.2.3 && git push origin v1.2.3`
-4. GitHub Actions automatically builds and signs releases for all platforms
-5. Draft release is created with installers and `latest.json` manifest
-6. Review and publish the release
-
-**Disabling Updates** (for development/testing):
-Set `"active": false` in `src-tauri/tauri.conf.json` under `plugins.updater`.
-
-## Security
-
-### Security Hardening
-- **No Inline Scripts**: All JavaScript loaded from external files
-- **Strict CSP**: Content Security Policy enforced (no `'unsafe-inline'` for scripts)
-- **Input Validation**: Add-on manifests validated before installation
-- **XSS Protection**: All user/API data escaped via `escapeHtml()`
-- **Environment Secrets**: API keys via environment variables, never hardcoded
-- **Add-on Validation**: URL format, manifest structure, and required fields checked
-- **Data Privacy**: All data stored locally in SQLite, no telemetry
-- **Signed Updates**: Cryptographic verification of all auto-updates
-- **Reproducible Builds**: Cargo.lock committed for supply chain security
-
-### Security Best Practices
-- Use `.env` file for TMDB_API_KEY (never commit secrets to code)
-- Only install add-ons from trusted sources
-- Review add-on manifests before installation
-- Keep Rust and npm dependencies up to date
-- Verify update signatures (handled automatically by Tauri)
-- Review release notes before accepting updates
-
-## Development Roadmap
-
-StreamGo is actively evolving to Stremio-level quality. See `EVOLUTION_ROADMAP.md` for the complete plan.
-
-- **Phase 0** (✅ COMPLETE): Align & Stabilize
-  - Preferences schema alignment
-  - Real add-on persistence
-  - Security hardening
-  - Toast/Modal system
-  - Skeleton loaders
-  - CI hardening
-  - Documentation updates
-
-- **Phase 1** (🔄 Up Next): Modernize Frontend & Player
-  - Vite + TypeScript setup
-  - HLS player support
-  - Watchlist & favorites
-  - Rust unit tests
-  - E2E tests with Playwright
-
-- **Phase 2** (📋 Planned): Real Add-on Protocol
-- **Phase 3** (📋 Planned): Distribution & Polish
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes following our quality standards:
-   - Run `npm run lint` and fix any issues
-   - Run `cargo fmt` and `cargo clippy -- -D warnings`
-   - Add tests if applicable
-4. Submit a pull request
-
-See `PHASE_0_PROGRESS.md` for detailed status and `CONTRIBUTING.md` for guidelines.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Inspired by Stremio's architecture and user experience
-- Built with the amazing Tauri framework
-- Uses various open-source libraries and APIs
+</div>

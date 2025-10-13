@@ -17,22 +17,31 @@ Thank you for your interest in contributing to StreamGo! This document provides 
    cd StreamGo
    ```
 
-2. **Install dependencies:**
+2. **Set up environment:**
+   ```bash
+   # Copy environment template
+   cp .env.example .env
+   # Edit .env and add your TMDB API key
+   ```
+
+3. **Install dependencies:**
    ```bash
    # Frontend dependencies
    npm install
    
-   # Rust dependencies
+   # Rust dependencies (optional, cargo will fetch as needed)
    cd src-tauri
    cargo fetch
    ```
 
-3. **Build and run:**
+4. **Build and run:**
    ```bash
-   # Build frontend
-   npm run build
+   # Option 1: Using npm scripts (recommended)
+   npm run dev            # Start Vite dev server
+   npm run tauri:dev      # In another terminal, start Tauri
    
-   # Run in development mode
+   # Option 2: Manual
+   npm run build
    cd src-tauri
    cargo tauri dev
    ```
@@ -47,9 +56,11 @@ Thank you for your interest in contributing to StreamGo! This document provides 
 - Write meaningful variable and function names
 - Add documentation for public APIs
 
-**Frontend (JS/CSS):**
+**Frontend (TypeScript/CSS):**
+- Use TypeScript for type safety
+- Run `npm run type-check` before committing
 - Use consistent indentation (2 spaces)
-- Follow modern JavaScript practices (ES6+)
+- Follow modern ES6+ practices
 - Write self-documenting code with clear variable names
 - Use CSS custom properties for theming
 
@@ -89,17 +100,32 @@ Before creating an issue, please:
 
 3. **Test your changes:**
    ```bash
-   # Run tests
+   # Using Makefile (recommended)
+   make check          # Run all Rust checks
+   npm run ci          # Run all frontend checks
+   
+   # Or manually:
+   
+   # Rust tests
    cd src-tauri && cargo test
    
-   # Check formatting
+   # Rust formatting
    cargo fmt --check
    
-   # Run clippy
+   # Rust linting
    cargo clippy -- -D warnings
    
+   # TypeScript type checking
+   npm run type-check
+   
+   # Frontend linting
+   npm run lint
+   
+   # E2E tests
+   npm run test:e2e
+   
    # Test the application
-   cargo tauri dev
+   npm run tauri:dev
    ```
 
 4. **Update documentation** if needed
@@ -158,18 +184,34 @@ StreamGo uses an extensible addon system. To develop addons:
 
 ### Running Tests
 ```bash
-# Rust tests
+# Rust unit tests
 cd src-tauri && cargo test
 
-# Frontend tests (when available)
-npm test
+# E2E tests with Playwright
+npm run test:e2e
+
+# E2E tests with UI
+npm run test:e2e:ui
+
+# View E2E test report
+npm run test:e2e:report
+
+# Run all tests
+make test-all
 ```
 
 ### Test Categories
-- Unit tests for individual functions
-- Integration tests for API endpoints
-- UI tests for frontend components
-- End-to-end tests for complete workflows
+- **Unit tests**: Individual Rust functions (in `src-tauri/src/`)
+- **Integration tests**: Rust modules integration (in `src-tauri/tests/`)
+- **E2E tests**: Full user workflows with Playwright (in `tests/e2e/`)
+- **Type checking**: TypeScript type validation
+
+### Writing Tests
+- Add Rust tests in the same file as the code or in `tests/`
+- E2E tests go in `tests/e2e/` directory
+- Use descriptive test names
+- Test edge cases and error conditions
+- Ensure tests are deterministic and don't depend on external state
 
 ## 📝 Documentation
 

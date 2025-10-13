@@ -46,6 +46,8 @@ pub struct Addon {
     pub enabled: bool,
     pub addon_type: AddonType,
     pub manifest: AddonManifest,
+    #[serde(default = "default_priority")]
+    pub priority: i32, // Higher number = higher priority
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,77 +94,39 @@ pub struct UserPreferences {
     pub version: u32,
 
     // Appearance
-    #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default = "default_language")]
+    pub language: String,
 
     // Video Settings
-    #[serde(default = "default_quality")]
-    pub default_quality: String,
-    #[serde(default = "default_codec")]
-    pub video_codec: String,
-    #[serde(default = "default_bitrate")]
-    pub max_bitrate: String,
-    #[serde(default = "default_true")]
-    pub hardware_accel: bool,
-
-    // Audio Settings
-    #[serde(default = "default_codec")]
-    pub audio_codec: String,
-    #[serde(default = "default_codec")]
-    pub audio_channels: String,
-    #[serde(default)]
-    pub volume_normalize: bool,
+    pub quality: String,
 
     // Playback
     #[serde(default = "default_true")]
-    pub autoplay_next: bool,
-    #[serde(default)]
-    pub skip_intro: bool,
-    #[serde(default = "default_true")]
-    pub resume_playback: bool,
+    pub autoplay: bool,
+    #[serde(default = "default_playback_speed")]
+    pub playback_speed: f32,
+    #[serde(default = "default_volume")]
+    pub volume: f32,
 
     // Subtitles
-    #[serde(default)]
-    pub subtitles_enabled: bool,
     #[serde(default = "default_subtitle_lang")]
     pub subtitle_language: String,
-    #[serde(default = "default_medium")]
-    pub subtitle_size: String,
 
-    // Network & Streaming
-    #[serde(default = "default_medium")]
-    pub buffer_size: String,
+    // General
     #[serde(default = "default_true")]
-    pub preload_next: bool,
-    #[serde(default = "default_torrent_connections")]
-    pub torrent_connections: String,
-    #[serde(default = "default_cache_size")]
-    pub cache_size: String,
+    pub notifications_enabled: bool,
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
 
     // Advanced
-    #[serde(default = "default_codec")]
-    pub player_engine: String,
     #[serde(default)]
-    pub debug_logging: bool,
-    #[serde(default)]
-    pub analytics: bool,
+    pub telemetry_enabled: bool,
 }
 
 // Default value functions for serde
 fn default_version() -> u32 {
     1
-}
-fn default_theme() -> String {
-    "auto".to_string()
-}
-fn default_quality() -> String {
-    "auto".to_string()
-}
-fn default_codec() -> String {
-    "auto".to_string()
-}
-fn default_bitrate() -> String {
-    "auto".to_string()
 }
 fn default_true() -> bool {
     true
@@ -170,43 +134,47 @@ fn default_true() -> bool {
 fn default_subtitle_lang() -> String {
     "en".to_string()
 }
-fn default_medium() -> String {
-    "medium".to_string()
+fn default_language() -> String {
+    "en".to_string()
 }
-fn default_torrent_connections() -> String {
-    "100".to_string()
+fn default_playback_speed() -> f32 {
+    1.0
 }
-fn default_cache_size() -> String {
-    "1024".to_string()
+fn default_volume() -> f32 {
+    0.8
+}
+fn default_priority() -> i32 {
+    0
 }
 
 impl Default for UserPreferences {
     fn default() -> Self {
+        // These defaults should match the frontend's `getDefaultSettings`
         Self {
             version: 1,
-            theme: "auto".to_string(),
-            default_quality: "auto".to_string(),
-            video_codec: "auto".to_string(),
-            max_bitrate: "auto".to_string(),
-            hardware_accel: true,
-            audio_codec: "auto".to_string(),
-            audio_channels: "auto".to_string(),
-            volume_normalize: false,
-            autoplay_next: true,
-            skip_intro: false,
-            resume_playback: true,
-            subtitles_enabled: false,
+            theme: "dark".to_string(),
+            language: "en".to_string(),
+            autoplay: true,
+            quality: "auto".to_string(),
             subtitle_language: "en".to_string(),
-            subtitle_size: "medium".to_string(),
-            buffer_size: "medium".to_string(),
-            preload_next: true,
-            torrent_connections: "100".to_string(),
-            cache_size: "1024".to_string(),
-            player_engine: "auto".to_string(),
-            debug_logging: false,
-            analytics: false,
+            playback_speed: 1.0,
+            volume: 0.8,
+            notifications_enabled: true,
+            auto_update: true,
+            telemetry_enabled: false,
         }
     }
+}
+
+/// A struct to hold all user data for export.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserExportData {
+    pub profile: UserProfile,
+    pub playlists: Vec<PlaylistWithItems>,
+    pub library: Vec<MediaItem>,
+    pub watchlist: Vec<MediaItem>,
+    pub favorites: Vec<MediaItem>,
+    pub continue_watching: Vec<MediaItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

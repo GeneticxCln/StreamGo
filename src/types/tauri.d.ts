@@ -26,27 +26,19 @@ export type MediaType =
 
 export interface UserPreferences {
   version: number;
+  // General
   theme: string;
-  default_quality: string;
-  video_codec: string;
-  max_bitrate: string;
-  hardware_accel: boolean;
-  audio_codec: string;
-  audio_channels: string;
-  volume_normalize: boolean;
-  autoplay_next: boolean;
-  skip_intro: boolean;
-  resume_playback: boolean;
-  subtitles_enabled: boolean;
+  language: string;
+  notifications_enabled: boolean;
+  auto_update: boolean;
+  // Playback
+  autoplay: boolean;
+  quality: string;
+  playback_speed: number;
+  volume: number;
   subtitle_language: string;
-  subtitle_size: string;
-  buffer_size: string;
-  preload_next: boolean;
-  torrent_connections: string;
-  cache_size: string;
-  player_engine: string;
-  debug_logging: boolean;
-  analytics: boolean;
+  // Advanced
+  telemetry_enabled: boolean;
 }
 
 export interface Addon {

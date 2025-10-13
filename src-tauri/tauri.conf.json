@@ -23,14 +23,14 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://image.tmdb.org https://via.placeholder.com; media-src 'self' blob: https://commondatastorage.googleapis.com; connect-src 'self' https://api.themoviedb.org https://commondatastorage.googleapis.com; script-src 'self'"
+      "csp": "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://image.tmdb.org https://via.placeholder.com; media-src 'self' blob: https:; connect-src 'self' https://api.themoviedb.org; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     }
   },
   "plugins": {
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/quigsdev/StreamGo/releases/latest/download/latest.json"
+        "https://github.com/GeneticxCln/StreamGo/releases/latest/download/latest.json"
       ],
       "dialog": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4ODIwREQ2RDUwMEIzN0MKUldSOHN3RFYxZzJDU0syN01nU0l2aFZyV3ppZnhwbEx2cFgrVjZzcnVrUkIwcTFYeGRxdmNteWQK"

@@ -84,9 +84,10 @@ fn parse_tmdb_movie_details(result: &Value, media_type: &MediaType) -> Option<Me
     })
 }
 
+#[allow(dead_code)]
 pub async fn get_streaming_url(content_id: &str) -> Result<String> {
-    // This is where addon system would be integrated
-    // For demo purposes, return a mock streaming URL
+    // Legacy function - replaced by aggregator-based get_stream_url in lib.rs
+    // Kept for backward compatibility during refactoring
 
     log::info!("Getting stream URL for content: {}", content_id);
 
@@ -169,6 +170,7 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
         enabled: true,
         addon_type,
         manifest,
+        priority: 0, // Default priority
     };
 
     log::info!(
@@ -221,6 +223,7 @@ pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
                 types: vec!["movie".to_string(), "series".to_string()],
                 catalogs: vec![],
             },
+            priority: 10, // High priority for official TMDB
         },
         Addon {
             id: "youtube_addon".to_string(),
@@ -245,6 +248,7 @@ pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
                     genres: None,
                 }],
             },
+            priority: 5, // Medium priority
         },
         Addon {
             id: "local_files".to_string(),
@@ -269,6 +273,7 @@ pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
                     genres: None,
                 }],
             },
+            priority: 0, // Lower priority
         },
     ];
 

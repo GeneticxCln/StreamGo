@@ -1,12 +1,18 @@
 /**
  * Addon Protocol Implementation
- * 
+ *
  * HTTP-based protocol for third-party content sources
  * Inspired by Stremio's addon protocol
  */
-
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use url::Url;
+
+// Security constants
+const MAX_MANIFEST_SIZE: u64 = 102400; // 100KB
+const MAX_RESPONSE_SIZE: u64 = 10485760; // 10MB
+const REQUEST_TIMEOUT_SECS: u64 = 5;
+const MAX_CATALOG_ITEMS: usize = 1000;
 
 /// Addon manifest - describes capabilities and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +93,7 @@ pub struct CatalogResponse {
 
 /// Metadata preview - minimal info for catalog listings
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)] // Stremio protocol uses camelCase
 pub struct MetaPreview {
     pub id: String,
     #[serde(rename = "type")]
@@ -116,26 +123,27 @@ pub struct StreamResponse {
 
 /// Stream - a playable media source
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)] // Stremio protocol uses camelCase
 pub struct Stream {
     /// Stream URL (required)
     pub url: String,
-    
+
     /// Title/name of the stream
     #[serde(default)]
     pub title: Option<String>,
-    
+
     /// Quality label (e.g. "1080p", "720p")
     #[serde(default)]
     pub name: Option<String>,
-    
+
     /// Info text (e.g. "Cached • 1080p • 5.1")
     #[serde(default)]
     pub description: Option<String>,
-    
+
     /// Behavioral hints
     #[serde(default)]
     pub behaviorHints: StreamBehaviorHints,
-    
+
     /// Subtitles available for this stream
     #[serde(default)]
     pub subtitles: Vec<Subtitle>,
@@ -143,6 +151,7 @@ pub struct Stream {
 
 /// Stream behavior hints
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[allow(non_snake_case)] // Stremio protocol uses camelCase
 pub struct StreamBehaviorHints {
     #[serde(default)]
     pub notWebReady: bool,
@@ -171,16 +180,19 @@ impl AddonClient {
     pub fn new(base_url: String) -> Result<Self, AddonError> {
         // Validate URL
         if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
-            return Err(AddonError::InvalidUrl("URL must start with http:// or https://".to_string()));
+            return Err(AddonError::InvalidUrl(
+                "URL must start with http:// or https://".to_string(),
+            ));
         }
 
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .user_agent(concat!(
                 env!("CARGO_PKG_NAME"),
                 "/",
                 env!("CARGO_PKG_VERSION")
             ))
+            .redirect(reqwest::redirect::Policy::limited(3))
             .build()
             .map_err(|e| AddonError::HttpError(e.to_string()))?;
 
@@ -193,9 +205,9 @@ impl AddonClient {
     /// Fetch addon manifest
     pub async fn get_manifest(&self) -> Result<AddonManifest, AddonError> {
         let url = format!("{}/manifest.json", self.base_url);
-        
+
         tracing::info!(url = %url, "Fetching addon manifest");
-        
+
         let response = self
             .client
             .get(&url)
@@ -211,9 +223,31 @@ impl AddonClient {
             )));
         }
 
-        let manifest = response
-            .json::<AddonManifest>()
+        // Check content length
+        if let Some(length) = response.content_length() {
+            if length > MAX_MANIFEST_SIZE {
+                return Err(AddonError::ValidationError(format!(
+                    "Manifest size {} exceeds maximum {}",
+                    length, MAX_MANIFEST_SIZE
+                )));
+            }
+        }
+
+        let body = response
+            .text()
             .await
+            .map_err(|e| AddonError::HttpError(e.to_string()))?;
+
+        // Validate size of actual response
+        if body.len() > MAX_MANIFEST_SIZE as usize {
+            return Err(AddonError::ValidationError(format!(
+                "Manifest size {} exceeds maximum {}",
+                body.len(),
+                MAX_MANIFEST_SIZE
+            )));
+        }
+
+        let manifest = serde_json::from_str::<AddonManifest>(&body)
             .map_err(|e| AddonError::ParseError(e.to_string()))?;
 
         // Validate manifest
@@ -235,20 +269,18 @@ impl AddonClient {
         catalog_id: &str,
         extra: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<CatalogResponse, AddonError> {
-        let mut url = format!(
+        let base_url = format!(
             "{}/catalog/{}/{}.json",
             self.base_url, media_type, catalog_id
         );
+        let mut url = Url::parse(&base_url).map_err(|e| AddonError::InvalidUrl(e.to_string()))?;
 
         // Add extra parameters if provided
         if let Some(extra_params) = extra {
             if !extra_params.is_empty() {
-                let query_string: Vec<String> = extra_params
-                    .iter()
-                    .map(|(k, v)| format!("{}={}", k, v))
-                    .collect();
-                url.push('?');
-                url.push_str(&query_string.join("&"));
+                for (k, v) in extra_params {
+                    url.query_pairs_mut().append_pair(k, v);
+                }
             }
         }
 
@@ -256,7 +288,7 @@ impl AddonClient {
 
         let response = self
             .client
-            .get(&url)
+            .get(url)
             .send()
             .await
             .map_err(|e| AddonError::HttpError(e.to_string()))?;
@@ -269,10 +301,32 @@ impl AddonClient {
             )));
         }
 
+        // Check content length
+        if let Some(length) = response.content_length() {
+            if length > MAX_RESPONSE_SIZE {
+                return Err(AddonError::ValidationError(format!(
+                    "Response size {} exceeds maximum {}",
+                    length, MAX_RESPONSE_SIZE
+                )));
+            }
+        }
+
         let catalog = response
             .json::<CatalogResponse>()
             .await
             .map_err(|e| AddonError::ParseError(e.to_string()))?;
+
+        // Limit catalog size
+        if catalog.metas.len() > MAX_CATALOG_ITEMS {
+            tracing::warn!(
+                "Catalog has {} items, limiting to {}",
+                catalog.metas.len(),
+                MAX_CATALOG_ITEMS
+            );
+            let mut limited_catalog = catalog;
+            limited_catalog.metas.truncate(MAX_CATALOG_ITEMS);
+            return Ok(limited_catalog);
+        }
 
         tracing::info!(
             media_type = %media_type,
@@ -309,10 +363,31 @@ impl AddonClient {
             )));
         }
 
-        let streams = response
+        // Check content length
+        if let Some(length) = response.content_length() {
+            if length > MAX_RESPONSE_SIZE {
+                return Err(AddonError::ValidationError(format!(
+                    "Response size {} exceeds maximum {}",
+                    length, MAX_RESPONSE_SIZE
+                )));
+            }
+        }
+
+        let mut streams = response
             .json::<StreamResponse>()
             .await
             .map_err(|e| AddonError::ParseError(e.to_string()))?;
+
+        // Validate stream URLs (security check)
+        streams
+            .streams
+            .retain(|stream| Self::validate_stream_url(&stream.url));
+
+        if streams.streams.is_empty() {
+            return Err(AddonError::ValidationError(
+                "No valid streams found (all URLs failed validation)".to_string(),
+            ));
+        }
 
         tracing::info!(
             media_type = %media_type,
@@ -326,23 +401,78 @@ impl AddonClient {
 
     /// Validate manifest
     fn validate_manifest(manifest: &AddonManifest) -> Result<(), AddonError> {
+        // ID validation
         if manifest.id.is_empty() {
-            return Err(AddonError::ValidationError("Manifest ID is required".to_string()));
+            return Err(AddonError::ValidationError(
+                "Manifest ID is required".to_string(),
+            ));
+        }
+
+        // ID must be alphanumeric with hyphens/underscores only
+        if !manifest
+            .id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(AddonError::ValidationError(
+                "Manifest ID must contain only alphanumeric characters, hyphens, and underscores"
+                    .to_string(),
+            ));
         }
 
         if manifest.name.is_empty() {
-            return Err(AddonError::ValidationError("Manifest name is required".to_string()));
+            return Err(AddonError::ValidationError(
+                "Manifest name is required".to_string(),
+            ));
         }
 
+        // Version validation (basic semver)
         if manifest.version.is_empty() {
-            return Err(AddonError::ValidationError("Manifest version is required".to_string()));
+            return Err(AddonError::ValidationError(
+                "Manifest version is required".to_string(),
+            ));
+        }
+
+        let version_parts: Vec<&str> = manifest.version.split('.').collect();
+        if version_parts.len() < 3 {
+            return Err(AddonError::ValidationError(
+                "Manifest version must follow semver format (e.g., 1.0.0)".to_string(),
+            ));
         }
 
         if manifest.resources.is_empty() {
-            return Err(AddonError::ValidationError("At least one resource is required".to_string()));
+            return Err(AddonError::ValidationError(
+                "At least one resource is required".to_string(),
+            ));
         }
 
         Ok(())
+    }
+
+    /// Validate stream URL (security check)
+    fn validate_stream_url(url_str: &str) -> bool {
+        match Url::parse(url_str) {
+            Ok(url) => {
+                // Only allow http and https protocols
+                let scheme = url.scheme();
+                if scheme != "http" && scheme != "https" {
+                    tracing::warn!(url = %url_str, "Rejected stream URL with invalid protocol: {}", scheme);
+                    return false;
+                }
+
+                // Validate hostname exists
+                if url.host_str().is_none() {
+                    tracing::warn!(url = %url_str, "Rejected stream URL without hostname");
+                    return false;
+                }
+
+                true
+            }
+            Err(e) => {
+                tracing::warn!(url = %url_str, error = %e, "Rejected malformed stream URL");
+                false
+            }
+        }
     }
 }
 

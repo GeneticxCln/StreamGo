@@ -1,12 +1,16 @@
 /**
  * Settings and Preferences Management
- * 
+ *
  * Provides UI and functionality for user preferences
+ * Note: This file has been updated to use the custom Modal system and fix several bugs.
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/api/dialog';
+import { open } from '@tauri-apps/api/shell';
 import { showToast } from './ui-utils';
-import { UserPreferences } from './types/tauri';
+import { UserPreferences, CacheStats } from './types/tauri';
+import { telemetry } from './telemetry';
 
 export class SettingsManager {
     private container: HTMLElement;
@@ -26,6 +30,7 @@ export class SettingsManager {
     async init(): Promise<void> {
         await this.loadSettings();
         this.render();
+        this.updateCacheStats();
         this.attachEventListeners();
     }
 
@@ -178,7 +183,7 @@ export class SettingsManager {
 
                         <div class="setting-item">
                             <button class="secondary-btn" id="clear-cache">Clear Cache</button>
-                            <p class="setting-description">Remove cached images and data</p>
+                            <p class="setting-description" id="cache-stats">Loading stats...</p>
                         </div>
 
                         <div class="setting-item">
@@ -284,6 +289,7 @@ export class SettingsManager {
         };
 
         return {
+            version: this.currentSettings?.version || 1,
             theme: getValue('theme') || 'dark',
             language: getValue('language') || 'en',
             autoplay: getValue('autoplay') !== null ? getValue('autoplay') : true,
@@ -303,8 +309,16 @@ export class SettingsManager {
     private async saveSettings(): Promise<void> {
         try {
             const newSettings = this.collectFormData();
-            await invoke('save_settings', { preferences: newSettings });
+            await invoke('save_settings', { settings: newSettings });
             this.currentSettings = newSettings;
+
+            // Update telemetry based on new setting
+            if (newSettings.telemetry_enabled) {
+                telemetry.enable();
+            } else {
+                telemetry.disable();
+            }
+
             showToast('Settings saved successfully', 'success');
             this.hide();
         } catch (error) {
@@ -317,23 +331,54 @@ export class SettingsManager {
      * Clear application cache
      */
     private async clearCache(): Promise<void> {
-        if (!confirm('Are you sure you want to clear the cache? This will remove all cached images and data.')) {
+        const confirmed = await window.Modal.confirm('Are you sure you want to clear the application cache? This will remove all cached images and data.', 'Clear Cache');
+        if (!confirmed) {
             return;
         }
+        try {
+            await invoke('clear_cache');
+            showToast('Cache cleared successfully', 'success');
+            this.updateCacheStats();
+        } catch (error) {
+            console.error('Failed to clear cache:', error);
+            showToast('Failed to clear cache', 'error');
+        }
+    }
 
-        // TODO: Implement cache clearing via Tauri command
-        showToast('Cache cleared successfully', 'success');
+    /**
+     * Update cache statistics display
+     */
+    private async updateCacheStats(): Promise<void> {
+        const statsEl = document.getElementById('cache-stats');
+        if (!statsEl) return;
+        try {
+            const stats = await invoke<CacheStats>('get_cache_stats');
+            const total = stats.metadata_total + stats.addon_total;
+            statsEl.textContent = `Cached items: ${total}. Metadata: ${stats.metadata_valid}, Addon: ${stats.addon_valid}.`;
+        } catch (error) {
+            statsEl.textContent = 'Could not load cache stats.';
+        }
     }
 
     /**
      * Export user data
      */
     private async exportData(): Promise<void> {
+        showToast('Preparing your data for export...', 'info');
         try {
-            // TODO: Implement data export
-            showToast('Data export feature coming soon', 'info');
+            const jsonData = await invoke<string>('export_user_data');
+            const filePath = await save({
+                defaultPath: `streamgo-backup-${new Date().toISOString().split('T')[0]}.json`,
+                filters: [{ name: 'JSON', extensions: ['json'] }]
+            });
+
+            // Use the tauri-apps/api/fs module to write the file
+            if (filePath) {
+                const { writeTextFile } = await import('@tauri-apps/api/fs');
+                await writeTextFile(filePath, jsonData);
+                showToast('Data exported successfully!', 'success');
+            }
         } catch (error) {
-            console.error('Failed to export data:', error);
             showToast('Failed to export data', 'error');
         }
     }
@@ -341,22 +386,28 @@ export class SettingsManager {
     /**
      * View application logs
      */
-    private viewLogs(): void {
-        // TODO: Implement log viewer
-        showToast('Log viewer feature coming soon', 'info');
+    private async viewLogs(): Promise<void> {
+        try {
+            const logPath = await invoke<string>('get_log_directory_path');
+            await open(logPath);
+        } catch (error) {
+            console.error('Failed to open log directory:', error);
+            showToast('Could not open log directory', 'error');
+        }
     }
 
     /**
      * Reset settings to defaults
      */
     private async resetSettings(): Promise<void> {
-        if (!confirm('Are you sure you want to reset all settings to defaults?')) {
+        const confirmed = await window.Modal.confirm('Are you sure you want to reset all settings to their defaults?', 'Reset Settings');
+        if (!confirmed) {
             return;
         }
 
         try {
             const defaults = this.getDefaultSettings();
-            await invoke('save_settings', { preferences: defaults });
+            await invoke('save_settings', { settings: defaults });
             this.currentSettings = defaults;
             this.render();
             this.attachEventListeners();

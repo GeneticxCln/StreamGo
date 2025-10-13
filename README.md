@@ -33,7 +33,7 @@ StreamGo is a cross-platform desktop application built with Rust and Tauri that 
 
 - **Backend**: Rust with Tauri framework
 - **Frontend**: HTML5, CSS3, JavaScript (ES6+)
-- **Database**: SQLite with rusqlite
+- **Database**: SQLite with `rusqlite`
 - **HTTP Client**: reqwest for API integrations
 - **Build System**: Cargo for Rust, npm for frontend assets
 

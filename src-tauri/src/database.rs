@@ -1,3 +1,4 @@
+use crate::migrations::MigrationRunner;
 use crate::models::*;
 use anyhow::anyhow;
 use rusqlite::{params, Connection};
@@ -7,6 +8,16 @@ pub struct Database {
 }
 
 impl Database {
+    pub fn new_in_memory() -> Result<Self, anyhow::Error> {
+        let conn = Connection::open_in_memory()?;
+
+        // Run migrations to set up schema
+        let migration_runner = MigrationRunner::new();
+        migration_runner.run_migrations(&conn)?;
+
+        Ok(Database { conn })
+    }
+
     pub fn new() -> Result<Self, anyhow::Error> {
         let app_data_dir = dirs::data_local_dir()
             .ok_or_else(|| anyhow!("Could not find app data directory"))?
@@ -16,155 +27,13 @@ impl Database {
         let db_path = app_data_dir.join("streamgo.db");
 
         let conn = Connection::open(db_path)?;
+
+        // Run migrations to set up or upgrade schema
+        let migration_runner = MigrationRunner::new();
+        migration_runner.run_migrations(&conn)?;
+
         let db = Database { conn };
-        db.initialize_tables()?;
         Ok(db)
-    }
-
-    fn initialize_tables(&self) -> Result<(), anyhow::Error> {
-        // Media items table
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS media_items (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                media_type TEXT NOT NULL,
-                year INTEGER,
-                genre TEXT,
-                description TEXT,
-                poster_url TEXT,
-                backdrop_url TEXT,
-                rating REAL,
-                duration INTEGER,
-                added_to_library TEXT,
-                watched BOOLEAN DEFAULT 0,
-                progress INTEGER DEFAULT 0
-            )",
-            [],
-        )?;
-
-        // User profiles table
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS user_profiles (
-                id TEXT PRIMARY KEY,
-                username TEXT NOT NULL,
-                email TEXT,
-                preferences TEXT NOT NULL
-            )",
-            [],
-        )?;
-
-        // Library associations table
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS library_items (
-                user_id TEXT NOT NULL,
-                media_id TEXT NOT NULL,
-                list_type TEXT NOT NULL, -- 'library', 'watchlist', 'favorites'
-                added_at TEXT NOT NULL,
-                PRIMARY KEY (user_id, media_id, list_type)
-            )",
-            [],
-        )?;
-
-        // Addons table
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS addons (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                version TEXT NOT NULL,
-                description TEXT,
-                author TEXT,
-                url TEXT,
-                enabled BOOLEAN DEFAULT 1,
-                addon_type TEXT NOT NULL,
-                manifest TEXT NOT NULL
-            )",
-            [],
-        )?;
-
-        // Playlists table
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS playlists (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                user_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                item_count INTEGER DEFAULT 0
-            )",
-            [],
-        )?;
-
-        // Playlist items table (junction table with ordering)
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS playlist_items (
-                playlist_id TEXT NOT NULL,
-                media_id TEXT NOT NULL,
-                position INTEGER NOT NULL,
-                added_at TEXT NOT NULL,
-                PRIMARY KEY (playlist_id, media_id),
-                FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-                FOREIGN KEY (media_id) REFERENCES media_items(id) ON DELETE CASCADE
-            )",
-            [],
-        )?;
-
-        // Create indexes for performance optimization
-        
-        // Playlist items ordering
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_playlist_items_position 
-             ON playlist_items(playlist_id, position)",
-            [],
-        )?;
-        
-        // Media items - frequently queried fields
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_media_items_type 
-             ON media_items(media_type)",
-            [],
-        )?;
-        
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_media_items_watched 
-             ON media_items(watched)",
-            [],
-        )?;
-        
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_media_items_added 
-             ON media_items(added_to_library)",
-            [],
-        )?;
-        
-        // Library items - list type filtering
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_library_items_user_type 
-             ON library_items(user_id, list_type)",
-            [],
-        )?;
-        
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_library_items_media 
-             ON library_items(media_id)",
-            [],
-        )?;
-        
-        // Addons - enabled filter
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_addons_enabled 
-             ON addons(enabled)",
-            [],
-        )?;
-        
-        // Playlists - user lookups
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_playlists_user 
-             ON playlists(user_id)",
-            [],
-        )?;
-
-        Ok(())
     }
 
     pub fn get_library_items(&self) -> Result<Vec<MediaItem>, anyhow::Error> {
@@ -346,6 +215,7 @@ impl Database {
                 enabled: row.get(6)?,
                 addon_type,
                 manifest,
+                priority: 0, // Default for old DB records
             })
         })?;
 
@@ -917,8 +787,12 @@ mod tests {
     fn create_test_db() -> Result<Database, anyhow::Error> {
         // Use in-memory database for testing
         let conn = Connection::open_in_memory()?;
+
+        // Run migrations to set up schema
+        let migration_runner = MigrationRunner::new();
+        migration_runner.run_migrations(&conn)?;
+
         let db = Database { conn };
-        db.initialize_tables()?;
         Ok(db)
     }
 

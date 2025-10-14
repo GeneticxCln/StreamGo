@@ -156,7 +156,8 @@ export class StreamGoApp {
             console.error('Search error:', err);
             resultsEl.innerHTML = this.renderErrorState(
                 'Search Failed',
-                String(err)
+                String(err),
+                `app.performSearch('${escapeHtml(query)}')`
             );
             Toast.error(`Search error: ${err}`);
         }
@@ -217,9 +218,11 @@ export class StreamGoApp {
             if (libraryEl) {
                 libraryEl.innerHTML = this.renderErrorState(
                     'Failed to Load Library',
-                    String(err)
+                    String(err),
+                    'app.loadLibrary()'
                 );
             }
+            Toast.error(`Failed to load library: ${err}`);
         }
     }
 
@@ -237,13 +240,17 @@ export class StreamGoApp {
     async loadAddons() {
         const addonsEl = document.getElementById('addons-list');
 
+        if (!addonsEl) return;
+
         try {
             const addons = await invoke<any[]>('get_addons');
 
-            if (!addonsEl) return;
-
             if (addons.length === 0) {
-                addonsEl.innerHTML = '<p class="empty-message">No add-ons installed yet.</p>';
+                addonsEl.innerHTML = this.renderEmptyState(
+                    '🧩',
+                    'No Add-ons Installed',
+                    'Add-ons extend StreamGo with new content sources. Click "Install Add-on" to get started.'
+                );
                 return;
             }
 
@@ -265,9 +272,12 @@ export class StreamGoApp {
 
         } catch (err) {
             console.error('Error loading add-ons:', err);
-            if (addonsEl) {
-                addonsEl.innerHTML = `<p class="error-message">Error loading add-ons: ${err}</p>`;
-            }
+            addonsEl.innerHTML = this.renderErrorState(
+                'Failed to Load Add-ons',
+                String(err),
+                'app.loadAddons()'
+            );
+            Toast.error(`Failed to load add-ons: ${err}`);
         }
     }
 
@@ -803,14 +813,25 @@ export class StreamGoApp {
         return `<div class="skeleton-grid">${skeletons}</div>`;
     }
 
-    // Utility: Render error state
-    renderErrorState(title: string, description: string): string {
+    // Utility: Render error state with retry button
+    renderErrorState(title: string, description: string, retryFn?: string): string {
+        const retryButton = retryFn ? `
+            <div class="error-actions">
+                <button class="retry-btn" onclick="${retryFn}">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                    </svg>
+                    Retry
+                </button>
+            </div>
+        ` : '';
 
         return `
             <div class="error-state">
                 <div class="error-icon">⚠️</div>
                 <h3 class="error-title">${escapeHtml(title)}</h3>
                 <p class="error-description">${escapeHtml(description)}</p>
+                ${retryButton}
             </div>
         `;
     }

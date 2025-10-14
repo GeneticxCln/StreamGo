@@ -23,7 +23,16 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch(err => {
             console.error('Error getting stream URL:', err);
-            alert(`Error getting stream URL: ${err}`);
+            if (window.Toast && typeof window.Toast.error === 'function') {
+              window.Toast.error(`Error getting stream URL: ${err}`);
+            } else {
+              // Fallback if Toast is not available
+              const el = document.createElement('div');
+              el.className = 'toast error';
+              el.textContent = `Error getting stream URL: ${err}`;
+              document.body.appendChild(el);
+              setTimeout(() => el.remove(), 4000);
+            }
         });
       } else {
         const mockVideoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';

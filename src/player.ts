@@ -1,6 +1,7 @@
 // Video Player Module with HLS support
 // HLS.js is lazy-loaded only when needed to reduce initial bundle size
 type HlsType = typeof import('hls.js').default;
+import { showToast } from './ui-utils';
 
 export interface PlayerOptions {
     container: HTMLElement;
@@ -117,7 +118,7 @@ export class VideoPlayer {
             });
         } else {
             console.error('HLS not supported in this browser');
-            alert('HLS streaming is not supported in your browser');
+            showToast('HLS streaming is not supported in your browser', 'error');
         }
     }
 

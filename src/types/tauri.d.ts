@@ -39,6 +39,35 @@ export interface UserPreferences {
   subtitle_language: string;
   // Advanced
   telemetry_enabled: boolean;
+  // Extended settings used in app.ts
+  default_quality?: string;
+  video_codec?: string;
+  max_bitrate?: string;
+  hardware_accel?: boolean;
+  audio_codec?: string;
+  audio_channels?: string;
+  volume_normalize?: boolean;
+  autoplay_next?: boolean;
+  skip_intro?: boolean;
+  resume_playback?: boolean;
+  subtitles_enabled?: boolean;
+  subtitle_size?: string;
+  buffer_size?: string;
+  preload_next?: boolean;
+  torrent_connections?: string;
+  cache_size?: string;
+  player_engine?: string;
+  debug_logging?: boolean;
+  analytics?: boolean;
+}
+
+export interface CacheStats {
+  metadata_total: number;
+  metadata_valid: number;
+  metadata_expired: number;
+  addon_total: number;
+  addon_valid: number;
+  addon_expired: number;
 }
 
 export interface Addon {

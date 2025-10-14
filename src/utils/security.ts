@@ -146,11 +146,16 @@ export function validateAddonManifest(manifestData: string, maxSize: number = 10
  */
 export class RateLimiter {
   private calls: number[] = [];
+  private maxCalls: number;
+  private windowMs: number;
   
   constructor(
-    private maxCalls: number,
-    private windowMs: number
-  ) {}
+    maxCalls: number,
+    windowMs: number
+  ) {
+    this.maxCalls = maxCalls;
+    this.windowMs = windowMs;
+  }
   
   /**
    * Check if a call is allowed

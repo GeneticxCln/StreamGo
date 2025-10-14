@@ -115,7 +115,7 @@ export class LazyImageLoader {
 export function getOptimizedImageUrl(
   url: string,
   width?: number,
-  quality?: number
+  _quality?: number
 ): string {
   if (!url) return '';
 
@@ -230,7 +230,7 @@ export class ImageCache {
    */
   static clear(): void {
     // Revoke all object URLs
-    this.cache.forEach((blob, url) => {
+    this.cache.forEach((blob) => {
       URL.revokeObjectURL(URL.createObjectURL(blob));
     });
 

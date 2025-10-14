@@ -400,6 +400,15 @@ export class StreamGoApp {
         return {
             version: 1,
             theme: 'auto',
+            language: 'en',
+            notifications_enabled: true,
+            auto_update: true,
+            autoplay: true,
+            quality: 'auto',
+            playback_speed: 1.0,
+            volume: 1.0,
+            subtitle_language: 'en',
+            telemetry_enabled: false,
             default_quality: 'auto',
             video_codec: 'auto',
             max_bitrate: 'auto',
@@ -411,7 +420,6 @@ export class StreamGoApp {
             skip_intro: false,
             resume_playback: true,
             subtitles_enabled: false,
-            subtitle_language: 'en',
             subtitle_size: 'medium',
             buffer_size: 'medium',
             preload_next: true,
@@ -462,12 +470,12 @@ export class StreamGoApp {
         this.setCheckboxIfExists('analytics-toggle', this.settings.analytics);
     }
 
-    setIfExists(id: string, value: string): void {
+    setIfExists(id: string, value: string | undefined): void {
         const el = document.getElementById(id) as HTMLSelectElement | HTMLInputElement;
         if (el && value !== undefined) el.value = value;
     }
 
-    setCheckboxIfExists(id: string, value: boolean): void {
+    setCheckboxIfExists(id: string, value: boolean | undefined): void {
         const el = document.getElementById(id) as HTMLInputElement;
         if (el && value !== undefined) el.checked = !!value;
     }
@@ -477,6 +485,15 @@ export class StreamGoApp {
         const settings: UserPreferences = {
             version: 1,
             theme: (document.getElementById('theme-select') as HTMLSelectElement)?.value || 'auto',
+            language: 'en',
+            notifications_enabled: true,
+            auto_update: true,
+            autoplay: true,
+            quality: 'auto',
+            playback_speed: 1.0,
+            volume: 1.0,
+            subtitle_language: (document.getElementById('subtitle-language') as HTMLInputElement)?.value || 'en',
+            telemetry_enabled: false,
             default_quality: (document.getElementById('quality-select') as HTMLSelectElement)?.value || 'auto',
             video_codec: (document.getElementById('codec-select') as HTMLSelectElement)?.value || 'auto',
             max_bitrate: (document.getElementById('bitrate-select') as HTMLSelectElement)?.value || 'auto',
@@ -488,7 +505,6 @@ export class StreamGoApp {
             skip_intro: (document.getElementById('skip-intro-toggle') as HTMLInputElement)?.checked || false,
             resume_playback: (document.getElementById('resume-playback-toggle') as HTMLInputElement)?.checked || false,
             subtitles_enabled: (document.getElementById('subtitles-toggle') as HTMLInputElement)?.checked || false,
-            subtitle_language: (document.getElementById('subtitle-language') as HTMLInputElement)?.value || 'en',
             subtitle_size: (document.getElementById('subtitle-size-select') as HTMLSelectElement)?.value || 'medium',
             buffer_size: (document.getElementById('buffer-size-select') as HTMLSelectElement)?.value || 'medium',
             preload_next: (document.getElementById('preload-toggle') as HTMLInputElement)?.checked || false,

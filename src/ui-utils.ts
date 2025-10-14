@@ -188,6 +188,11 @@ const Modal = {
 // Export for use throughout the app
 export { Toast, Modal };
 
+// Export convenience function for backward compatibility
+export function showToast(message: string, type: ToastType = 'info', duration = 4000): HTMLElement {
+  return Toast.show(message, type, duration);
+}
+
 // Make available globally for onclick handlers
 if (typeof window !== 'undefined') {
     (window as any).Toast = Toast;

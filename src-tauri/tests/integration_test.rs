@@ -60,7 +60,7 @@ fn test_user_preferences() {
     // Create default preferences
     let prefs = UserPreferences {
         theme: "dark".to_string(),
-        default_quality: "1080p".to_string(),
+        quality: "1080p".to_string(),
         ..UserPreferences::default()
     };
 
@@ -85,7 +85,7 @@ fn test_user_preferences() {
         .expect("Profile not found");
 
     assert_eq!(loaded_profile.preferences.theme, "dark");
-    assert_eq!(loaded_profile.preferences.default_quality, "1080p");
+    assert_eq!(loaded_profile.preferences.quality, "1080p");
 }
 
 #[test]
@@ -269,7 +269,11 @@ fn test_aggregator_with_empty_addons() {
 
     // This should return empty results without panicking
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = rt.block_on(async { aggregator.query_catalogs(&addons, "movie", "top").await });
+    let result = rt.block_on(async {
+        aggregator
+            .query_catalogs(&addons, "movie", "top", &None)
+            .await
+    });
 
     assert_eq!(result.items.len(), 0);
     assert_eq!(result.sources.len(), 0);

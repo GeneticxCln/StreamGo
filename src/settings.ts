@@ -5,9 +5,7 @@
  * Note: This file has been updated to use the custom Modal system and fix several bugs.
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/api/dialog';
-import { open } from '@tauri-apps/api/shell';
+import { invoke } from './utils';
 import { showToast } from './ui-utils';
 import { UserPreferences, CacheStats } from './types/tauri';
 import { telemetry } from './telemetry';
@@ -51,6 +49,7 @@ export class SettingsManager {
      */
     private getDefaultSettings(): UserPreferences {
         return {
+            version: 1,
             theme: 'dark',
             language: 'en',
             autoplay: true,
@@ -367,17 +366,17 @@ export class SettingsManager {
         showToast('Preparing your data for export...', 'info');
         try {
             const jsonData = await invoke<string>('export_user_data');
-            const filePath = await save({
-                defaultPath: `streamgo-backup-${new Date().toISOString().split('T')[0]}.json`,
-                filters: [{ name: 'JSON', extensions: ['json'] }]
-            });
-
-            // Use the tauri-apps/api/fs module to write the file
-            if (filePath) {
-                const { writeTextFile } = await import('@tauri-apps/api/fs');
-                await writeTextFile(filePath, jsonData);
-                showToast('Data exported successfully!', 'success');
-            }
+            // Create a download link for the JSON data
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `streamgo-backup-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showToast('Data exported successfully!', 'success');
         } catch (error) {
             showToast('Failed to export data', 'error');
         }
@@ -389,10 +388,10 @@ export class SettingsManager {
     private async viewLogs(): Promise<void> {
         try {
             const logPath = await invoke<string>('get_log_directory_path');
-            await open(logPath);
+            showToast(`Log directory: ${logPath}`, 'info', 8000);
         } catch (error) {
-            console.error('Failed to open log directory:', error);
-            showToast('Could not open log directory', 'error');
+            console.error('Failed to get log directory:', error);
+            showToast('Could not get log directory', 'error');
         }
     }
 

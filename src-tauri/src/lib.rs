@@ -796,23 +796,23 @@ async fn export_user_data(state: tauri::State<'_, AppState>) -> Result<String, S
         let db = db.lock().map_err(|e| e.to_string())?;
 
         let profile = db
-            .get_user_profile(&user_id)?
+            .get_user_profile(&user_id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "User profile not found".to_string())?;
 
-        let playlists = db.get_playlists(&user_id)?;
+        let playlists = db.get_playlists(&user_id).map_err(|e| e.to_string())?;
         let mut playlists_with_items = Vec::new();
         for p in playlists {
-            let items = db.get_playlist_items(&p.id)?;
-            playlists_with_items.push(PlaylistWithItems {
-                playlist: p,
-                items,
-            });
+            let items = db.get_playlist_items(&p.id).map_err(|e| e.to_string())?;
+            playlists_with_items.push(PlaylistWithItems { playlist: p, items });
         }
 
-        let library = db.get_library_items()?;
-        let watchlist = db.get_watchlist(&user_id)?;
-        let favorites = db.get_favorites(&user_id)?;
-        let continue_watching = db.get_continue_watching(&user_id)?;
+        let library = db.get_library_items().map_err(|e| e.to_string())?;
+        let watchlist = db.get_watchlist(&user_id).map_err(|e| e.to_string())?;
+        let favorites = db.get_favorites(&user_id).map_err(|e| e.to_string())?;
+        let continue_watching = db
+            .get_continue_watching(&user_id)
+            .map_err(|e| e.to_string())?;
 
         let export_data = UserExportData {
             profile,
@@ -904,7 +904,14 @@ pub fn run() {
         }
         Err(e) => {
             tracing::warn!(error = %e, "Failed to initialize cache, using in-memory cache");
-            CacheManager::new(None).expect("Failed to create in-memory cache")
+            match CacheManager::new(None) {
+                Ok(cache) => cache,
+                Err(e) => {
+                    tracing::error!(error = %e, "Critical: Failed to create in-memory cache");
+                    eprintln!("Fatal error: Could not create cache system: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
     };
 

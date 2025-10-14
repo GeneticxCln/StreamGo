@@ -157,8 +157,21 @@ class ErrorLogger {
      * Show fatal error dialog to user
      */
     private showFatalErrorDialog(logEntry: ErrorLog): void {
-        // In a real implementation, this would show a modal
-        alert(`Fatal Error: ${logEntry.message}\n\nPlease restart the application. If the problem persists, contact support.`);
+        // In a real implementation, this shows a modal via our UI utils
+        // Note: UI imports are avoided here to keep logger decoupled; we use the global Modal if present.
+        if (typeof window !== 'undefined' && (window as any).Modal) {
+            (window as any).Modal.alert(
+                `Fatal Error: ${logEntry.message}\n\nPlease restart the application. If the problem persists, contact support.`,
+                'Fatal Error'
+            );
+        } else {
+            // Fallback to console error and a minimal DOM toast
+            const el = document.createElement('div');
+            el.className = 'toast error';
+            el.textContent = `Fatal Error: ${logEntry.message}`;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 6000);
+        }
     }
 
     /**

@@ -97,7 +97,8 @@ impl ContentAggregator {
                     &catalog_id,
                     &extra_clone,
                     timeout_duration,
-                ).await
+                )
+                .await
             });
 
             tasks.push((addon.id.clone(), addon.name.clone(), task));

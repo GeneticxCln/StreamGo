@@ -76,8 +76,11 @@ impl CacheManager {
     fn now() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
+            .map(|d| d.as_secs())
+            .unwrap_or_else(|_| {
+                tracing::error!("System time is before UNIX_EPOCH, using 0");
+                0
+            })
     }
 
     /// Get metadata from cache

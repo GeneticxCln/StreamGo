@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 /// Migration trait for implementing version upgrades
 pub trait Migration {
@@ -255,6 +255,67 @@ impl Migration001InitialSchema {
     }
 }
 
+/// Migration v2: Add addon health tracking
+struct Migration002AddonHealth;
+
+impl Migration for Migration002AddonHealth {
+    fn version(&self) -> u32 {
+        2
+    }
+
+    fn description(&self) -> &str {
+        "Add addon health metrics tracking table"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Addon health metrics table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS addon_health (
+                addon_id TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                response_time_ms INTEGER NOT NULL,
+                success BOOLEAN NOT NULL,
+                error_message TEXT,
+                item_count INTEGER DEFAULT 0,
+                operation_type TEXT NOT NULL,
+                PRIMARY KEY (addon_id, timestamp)
+            )",
+            [],
+        )?;
+
+        // Addon health summary (rolling statistics)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS addon_health_summary (
+                addon_id TEXT PRIMARY KEY,
+                last_check INTEGER NOT NULL,
+                success_rate REAL NOT NULL,
+                avg_response_time_ms INTEGER NOT NULL,
+                total_requests INTEGER NOT NULL,
+                successful_requests INTEGER NOT NULL,
+                failed_requests INTEGER NOT NULL,
+                last_error TEXT,
+                health_score REAL NOT NULL
+            )",
+            [],
+        )?;
+
+        // Indexes for health metrics
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_addon_health_timestamp 
+             ON addon_health(timestamp DESC)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_addon_health_addon 
+             ON addon_health(addon_id, timestamp DESC)",
+            [],
+        )?;
+
+        Ok(())
+    }
+}
+
 /// Migration runner
 pub struct MigrationRunner {
     migrations: Vec<Box<dyn Migration>>,
@@ -262,7 +323,10 @@ pub struct MigrationRunner {
 
 impl MigrationRunner {
     pub fn new() -> Self {
-        let migrations: Vec<Box<dyn Migration>> = vec![Box::new(Migration001InitialSchema)];
+        let migrations: Vec<Box<dyn Migration>> = vec![
+            Box::new(Migration001InitialSchema),
+            Box::new(Migration002AddonHealth),
+        ];
         Self { migrations }
     }
 

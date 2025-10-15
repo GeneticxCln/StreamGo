@@ -1,4 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 use tracing_appender::{non_blocking, rolling};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -6,6 +9,11 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 pub fn init_logging(log_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     // Ensure log directory exists
     std::fs::create_dir_all(&log_dir)?;
+
+    // Store log directory for later use
+    if let Ok(mut guard) = LOG_DIR.lock() {
+        *guard = Some(log_dir.clone());
+    }
 
     // File appender with daily rotation
     let file_appender = rolling::daily(&log_dir, "streamgo.log");
@@ -249,5 +257,257 @@ pub mod user {
     #[allow(dead_code)]
     pub fn log_preference_change(key: &str, value: &str) {
         tracing::info!(preference = key, value = value, "User preference changed");
+    }
+}
+
+/// Diagnostics information for export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticsInfo {
+    pub timestamp: u64,
+    pub app_version: String,
+    pub os: String,
+    pub arch: String,
+    pub uptime_seconds: u64,
+    pub log_path: String,
+    pub metrics: PerformanceMetrics,
+}
+
+/// Performance metrics
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PerformanceMetrics {
+    pub total_requests: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+    pub avg_response_time_ms: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+}
+
+/// Global metrics tracker
+static METRICS: once_cell::sync::Lazy<Arc<Mutex<PerformanceMetrics>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(PerformanceMetrics::default())));
+
+static APP_START_TIME: once_cell::sync::Lazy<SystemTime> =
+    once_cell::sync::Lazy::new(SystemTime::now);
+
+static LOG_DIR: once_cell::sync::Lazy<Arc<Mutex<Option<PathBuf>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
+
+/// Record a request metric
+#[allow(dead_code)]
+pub fn record_request(success: bool, response_time_ms: u128) {
+    if let Ok(mut metrics) = METRICS.lock() {
+        metrics.total_requests += 1;
+        if success {
+            metrics.successful_requests += 1;
+        } else {
+            metrics.failed_requests += 1;
+        }
+
+        // Update average response time (simple moving average)
+        let current_avg = metrics.avg_response_time_ms;
+        let total = metrics.total_requests;
+        metrics.avg_response_time_ms =
+            ((current_avg * (total - 1)) + response_time_ms as u64) / total;
+    }
+}
+
+/// Record a cache operation
+#[allow(dead_code)]
+pub fn record_cache_operation(hit: bool) {
+    if let Ok(mut metrics) = METRICS.lock() {
+        if hit {
+            metrics.cache_hits += 1;
+        } else {
+            metrics.cache_misses += 1;
+        }
+    }
+}
+
+/// Get current performance metrics
+pub fn get_metrics() -> PerformanceMetrics {
+    METRICS.lock().map(|m| m.clone()).unwrap_or_default()
+}
+
+/// Reset performance metrics
+pub fn reset_metrics() {
+    if let Ok(mut metrics) = METRICS.lock() {
+        *metrics = PerformanceMetrics::default();
+    }
+}
+
+/// Export diagnostics information
+pub fn export_diagnostics() -> Result<DiagnosticsInfo, Box<dyn std::error::Error>> {
+    let uptime = APP_START_TIME.elapsed().unwrap_or_default().as_secs();
+
+    let log_path = LOG_DIR
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|p| p.display().to_string()))
+        .unwrap_or_else(|| "Not set".to_string());
+
+    Ok(DiagnosticsInfo {
+        timestamp: SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        uptime_seconds: uptime,
+        log_path,
+        metrics: get_metrics(),
+    })
+}
+
+/// Export diagnostics to JSON file
+pub fn export_diagnostics_to_file(output_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    let diagnostics = export_diagnostics()?;
+    let json = serde_json::to_string_pretty(&diagnostics)?;
+    std::fs::write(output_path, json)?;
+
+    tracing::info!(
+        output_path = %output_path.display(),
+        "Diagnostics exported successfully"
+    );
+
+    Ok(())
+}
+
+/// Get log file path
+#[allow(dead_code)]
+pub fn get_log_path() -> Option<PathBuf> {
+    LOG_DIR.lock().ok().and_then(|guard| guard.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_record_request_metrics() {
+        // Reset metrics before test
+        reset_metrics();
+
+        // Record some successful requests
+        record_request(true, 100);
+        record_request(true, 200);
+        record_request(true, 300);
+
+        // Record a failed request
+        record_request(false, 500);
+
+        // Check metrics
+        let metrics = get_metrics();
+        assert_eq!(metrics.total_requests, 4);
+        assert_eq!(metrics.successful_requests, 3);
+        assert_eq!(metrics.failed_requests, 1);
+        // Average should be (100+200+300+500)/4 = 275
+        assert_eq!(metrics.avg_response_time_ms, 275);
+    }
+
+    #[test]
+    fn test_cache_operation_metrics() {
+        // Reset metrics before test
+        reset_metrics();
+
+        // Record cache operations
+        record_cache_operation(true); // hit
+        record_cache_operation(true); // hit
+        record_cache_operation(false); // miss
+        record_cache_operation(true); // hit
+
+        // Check metrics
+        let metrics = get_metrics();
+        assert_eq!(metrics.cache_hits, 3);
+        assert_eq!(metrics.cache_misses, 1);
+    }
+
+    #[test]
+    fn test_reset_metrics() {
+        // Record some data
+        record_request(true, 100);
+        record_cache_operation(true);
+
+        // Verify data exists
+        let metrics_before = get_metrics();
+        assert!(metrics_before.total_requests > 0);
+        assert!(metrics_before.cache_hits > 0);
+
+        // Reset
+        reset_metrics();
+
+        // Verify metrics are cleared
+        let metrics_after = get_metrics();
+        assert_eq!(metrics_after.total_requests, 0);
+        assert_eq!(metrics_after.successful_requests, 0);
+        assert_eq!(metrics_after.failed_requests, 0);
+        assert_eq!(metrics_after.cache_hits, 0);
+        assert_eq!(metrics_after.cache_misses, 0);
+    }
+
+    #[test]
+    fn test_export_diagnostics() {
+        // Export diagnostics
+        let diagnostics = export_diagnostics().unwrap();
+
+        // Verify basic fields (these don't depend on global state)
+        assert_eq!(diagnostics.app_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(diagnostics.os, std::env::consts::OS);
+        assert_eq!(diagnostics.arch, std::env::consts::ARCH);
+        assert!(diagnostics.timestamp > 0);
+        assert!(!diagnostics.log_path.is_empty());
+
+        // Verify metrics structure exists (values may vary due to other tests)
+        // Just check that we get a valid PerformanceMetrics struct
+        let _ = diagnostics.metrics;
+    }
+
+    #[test]
+    fn test_export_diagnostics_to_file() {
+        // Reset and record some metrics
+        reset_metrics();
+        record_request(true, 100);
+        record_request(false, 200);
+
+        // Create temporary file path
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("test_diagnostics.json");
+
+        // Export to file
+        export_diagnostics_to_file(&file_path).unwrap();
+
+        // Verify file exists
+        assert!(file_path.exists());
+
+        // Read and verify content
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        let diagnostics: DiagnosticsInfo = serde_json::from_str(&content).unwrap();
+
+        assert_eq!(diagnostics.metrics.total_requests, 2);
+        assert_eq!(diagnostics.metrics.successful_requests, 1);
+        assert_eq!(diagnostics.metrics.failed_requests, 1);
+
+        // Cleanup
+        std::fs::remove_file(&file_path).ok();
+    }
+
+    #[test]
+    fn test_performance_metrics_default() {
+        let metrics = PerformanceMetrics::default();
+        assert_eq!(metrics.total_requests, 0);
+        assert_eq!(metrics.successful_requests, 0);
+        assert_eq!(metrics.failed_requests, 0);
+        assert_eq!(metrics.avg_response_time_ms, 0);
+        assert_eq!(metrics.cache_hits, 0);
+        assert_eq!(metrics.cache_misses, 0);
+    }
+
+    #[test]
+    fn test_operation_timer() {
+        let timer = OperationTimer::new("test_operation");
+        std::thread::sleep(Duration::from_millis(10));
+        let duration = timer.finish_with_result(&Ok::<(), &str>(()));
+        assert!(duration.as_millis() >= 10);
     }
 }

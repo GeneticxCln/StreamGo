@@ -138,6 +138,37 @@ export interface SearchFilters {
   sort_by?: string;
 }
 
+export interface AddonHealthSummary {
+  addon_id: string;
+  last_check: number;
+  success_rate: number;
+  avg_response_time_ms: number;
+  total_requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  last_error: string | null;
+  health_score: number;
+}
+
+export interface PerformanceMetrics {
+  total_requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  avg_response_time_ms: number;
+  cache_hits: number;
+  cache_misses: number;
+}
+
+export interface DiagnosticsInfo {
+  timestamp: number;
+  app_version: string;
+  os: string;
+  arch: string;
+  uptime_seconds: number;
+  log_path: string;
+  metrics: PerformanceMetrics;
+}
+
 // Tauri Command Definitions
 export interface TauriCommands {
   // Library
@@ -187,6 +218,19 @@ export interface TauriCommands {
   remove_from_playlist: { args: { playlist_id: string; media_id: string }; return: void };
   get_playlist_items: { args: { playlist_id: string }; return: MediaItem[] };
   reorder_playlist: { args: { playlist_id: string; media_ids: string[] }; return: void };
+  
+  // Cache
+  get_cache_stats: { args: {}; return: CacheStats };
+  clear_cache: { args: {}; return: void };
+  clear_expired_cache: { args: {}; return: number };
+  
+  // Health & Diagnostics
+  get_addon_health_summaries: { args: {}; return: AddonHealthSummary[] };
+  get_addon_health: { args: { addon_id: string }; return: AddonHealthSummary | null };
+  get_performance_metrics: { args: {}; return: PerformanceMetrics };
+  export_diagnostics: { args: {}; return: DiagnosticsInfo };
+  export_diagnostics_file: { args: {}; return: string };
+  reset_performance_metrics: { args: {}; return: void };
 }
 
 // Global Tauri API

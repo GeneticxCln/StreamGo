@@ -3,9 +3,11 @@ import './styles.css';
 import { StreamGoApp } from './app';
 import { createPlayer } from './player';
 import { PlaylistManager } from './playlists';
+import { externalPlayerManager } from './external-player';
+import { diagnosticsManager } from './diagnostics';
 
 // Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const app = new StreamGoApp();
   
   // Initialize video player
@@ -31,12 +33,33 @@ document.addEventListener('DOMContentLoaded', () => {
         player.togglePictureInPicture();
       });
     }
+    
+    // Initialize external player manager
+    await externalPlayerManager.init();
+    
+    // Setup external player button
+    const externalPlayerBtn = document.getElementById('external-player-btn');
+    if (externalPlayerBtn) {
+      externalPlayerManager.updateButtonState(externalPlayerBtn);
+      externalPlayerBtn.addEventListener('click', () => {
+        externalPlayerManager.openInExternalPlayer();
+      });
+    }
   }
   
-  // Make app globally available for onclick handlers (will be refactored later)
+  // Make app and external player manager globally available
   (window as any).app = app;
+  (window as any).externalPlayerManager = externalPlayerManager;
+  (window as any).diagnosticsManager = diagnosticsManager;
   
   // Initialize playlist manager
   const playlistManager = new PlaylistManager();
   window.playlistManager = playlistManager;
+  
+  console.log('✅ All managers initialized:', {
+    app: !!(window as any).app,
+    externalPlayerManager: !!(window as any).externalPlayerManager,
+    diagnosticsManager: !!(window as any).diagnosticsManager,
+    playlistManager: !!window.playlistManager
+  });
 });

@@ -28,8 +28,9 @@ Discover • Watch • Organize
 ### 🎯 Core
 - 🔍 **Smart Search** - TMDB-powered content discovery
 - 📚 **Library Management** - Organize your collection
-- 🎥 **HLS Player** - Smooth video playback
+- 🎥 **HLS Player** - Smooth video playback with quality selection
 - 🧩 **Addon System** - Extensible content sources
+- 📊 **Health Monitoring** - Real-time addon performance tracking
 - 🎨 **Modern UI** - Clean, responsive interface
 - 🔄 **Auto-Updates** - Secure, signed releases
 
@@ -89,6 +90,7 @@ npm run tauri:build      # Creates installer in src-tauri/target/release/bundle/
 
 ### For Users
 - **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)** - Navigate efficiently
+- **[Health Monitoring](docs/HEALTH_MONITORING.md)** - Addon diagnostics & performance
 - **[Security & Privacy](SECURITY.md)** - No telemetry, local data only
 - **[Auto-Updates](SECURITY.md#auto-updates)** - How updates work
 
@@ -204,8 +206,8 @@ We welcome contributions! Here's how to get started:
 ### Project Status
 
 **✅ Phase 0 Complete** - Stabilization & Security  
-**🔄 Phase 1 In Progress** - TypeScript & HLS Player  
-**📋 Phase 2 Planned** - Advanced Addon Protocol  
+**✅ Phase 1 Complete** - TypeScript, HLS Player & Library Features  
+**📋 Phase 2 Planned** - Advanced Addon Protocol & Content Aggregation
 
 See [EVOLUTION_ROADMAP.md](EVOLUTION_ROADMAP.md) for the complete roadmap.
 

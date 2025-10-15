@@ -2,6 +2,7 @@
 import type { MediaItem, UserPreferences } from './types/tauri';
 import { invoke, escapeHtml } from './utils';
 import { Toast, Modal } from './ui-utils';
+import { setupLazyLoading } from './utils/imageLazyLoad';
 
 // Re-export for backwards compatibility
 (window as any).escapeHtml = escapeHtml;
@@ -29,10 +30,38 @@ export class StreamGoApp {
     init() {
         console.log('StreamGo initialized');
         this.setupEventListeners();
+        this.initializeTheme();
         this.loadSettings();
         this.loadLibrary();
         this.loadAddons();
         this.loadContinueWatching();
+    }
+
+    initializeTheme() {
+        // Check localStorage first, then system preference
+        const savedTheme = localStorage.getItem('theme');
+        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        const currentTheme = savedTheme || systemTheme;
+        
+        this.applyTheme(currentTheme);
+
+        // Listen for system theme changes if no saved preference
+        if (!savedTheme) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+                this.applyTheme(e.matches ? 'dark' : 'light');
+            });
+        }
+    }
+
+    applyTheme(theme: string) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+    }
+
+    toggleTheme() {
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        this.applyTheme(newTheme);
     }
 
     setupEventListeners() {
@@ -115,12 +144,52 @@ export class StreamGoApp {
         // Reload data if needed
         if (section === 'home') {
             this.loadContinueWatching();
+            this.loadTrending();
+            this.loadPopular();
         } else if (section === 'library') {
             this.loadLibrary();
         } else if (section === 'addons') {
             this.loadAddons();
         } else if (section === 'settings') {
             this.loadSettings();
+        } else if (section === 'diagnostics') {
+            this.loadDiagnostics();
+        }
+    }
+
+    async loadDiagnostics() {
+        const container = document.getElementById('diagnostics-container');
+        console.log('loadDiagnostics called', { 
+            containerExists: !!container, 
+            diagnosticsManagerExists: !!(window as any).diagnosticsManager 
+        });
+        
+        if (!container) {
+            console.error('Diagnostics container not found in DOM');
+            return;
+        }
+        
+        if (!(window as any).diagnosticsManager) {
+            console.error('diagnosticsManager not found on window object');
+            container.innerHTML = `
+                <div class="error-state">
+                    <h3>⚠️ Diagnostics Not Available</h3>
+                    <p>The diagnostics module failed to initialize.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        try {
+            await (window as any).diagnosticsManager.renderDashboard(container);
+        } catch (error) {
+            console.error('Error rendering diagnostics dashboard:', error);
+            container.innerHTML = `
+                <div class="error-state">
+                    <h3>❌ Failed to Load Diagnostics</h3>
+                    <p>${escapeHtml(String(error))}</p>
+                </div>
+            `;
         }
     }
 
@@ -149,23 +218,27 @@ export class StreamGoApp {
 
             resultsEl.innerHTML = results.map(item => this.renderMediaCard(item, true)).join('');
 
+            // Initialize lazy loading for newly rendered images
+            setupLazyLoading();
+
             // Add event listeners to cards and buttons
             this.attachCardListeners();
 
         } catch (err) {
             console.error('Search error:', err);
             resultsEl.innerHTML = this.renderErrorState(
-                'Search Failed',
-                String(err),
+                'Unable to Search',
+                'We couldn\'t complete your search. This might be due to a network issue or the service being unavailable.',
                 `app.performSearch('${escapeHtml(query)}')`
             );
-            Toast.error(`Search error: ${err}`);
+            Toast.error('Search failed. Please check your connection and try again.');
         }
     }
 
     async loadLibrary() {
         const libraryEl = document.getElementById('library-grid');
-        const recentLibraryEl = document.getElementById('recent-library');
+        const recentLibraryEl = document.getElementById('recent-library-row');
+        const recentLibrarySection = document.getElementById('recent-library-section');
         const countEl = document.getElementById('library-count');
 
         try {
@@ -189,12 +262,8 @@ export class StreamGoApp {
                         'Search for movies and TV shows, then add them to your library to see them here.'
                     );
                 }
-                if (recentLibraryEl) {
-                    recentLibraryEl.innerHTML = this.renderEmptyState(
-                        '📚',
-                        'No items yet',
-                        'Add some content to your library to get started!'
-                    );
+                if (recentLibrarySection) {
+                    recentLibrarySection.style.display = 'none';
                 }
                 return;
             }
@@ -203,26 +272,39 @@ export class StreamGoApp {
             
             if (libraryEl) {
                 libraryEl.innerHTML = html;
+                // Initialize lazy loading for library grid images
+                setupLazyLoading();
                 this.attachCardListeners();
             }
             
             if (recentLibraryEl) {
-                // Show only first 6 items on home page
-                const recentItems = items.slice(0, 6);
+                if (recentLibrarySection) {
+                    recentLibrarySection.style.display = 'block';
+                }
+                // Show only first 10 items on home page for horizontal scroll
+                const recentItems = items.slice(0, 10);
                 recentLibraryEl.innerHTML = recentItems.map(item => this.renderMediaCard(item, false)).join('');
+                // Initialize lazy loading for recent items images
+                setupLazyLoading();
                 this.attachCardListeners();
+            }
+
+            // Also refresh trending/popular on library update
+            if (this.currentSection === 'home') {
+                this.loadTrending();
+                this.loadPopular();
             }
 
         } catch (err) {
             console.error('Error loading library:', err);
             if (libraryEl) {
                 libraryEl.innerHTML = this.renderErrorState(
-                    'Failed to Load Library',
-                    String(err),
+                    'Unable to Load Library',
+                    'There was a problem loading your library. Your data is safe, but we couldn\'t display it right now.',
                     'app.loadLibrary()'
                 );
             }
-            Toast.error(`Failed to load library: ${err}`);
+            Toast.error('Failed to load library. Click retry to try again.');
         }
     }
 
@@ -233,7 +315,7 @@ export class StreamGoApp {
             await this.loadLibrary();
         } catch (err) {
             console.error('Error adding to library:', err);
-            Toast.error(`Error adding to library: ${err}`);
+            Toast.error('Couldn\'t add to library. Please try again.');
         }
     }
 
@@ -243,6 +325,9 @@ export class StreamGoApp {
         if (!addonsEl) return;
 
         try {
+            // Show loading state
+            addonsEl.innerHTML = '<div class="loading-spinner">Loading add-ons...</div>';
+
             const addons = await invoke<any[]>('get_addons');
 
             if (addons.length === 0) {
@@ -254,37 +339,107 @@ export class StreamGoApp {
                 return;
             }
 
-            addonsEl.innerHTML = addons.map(addon => `
-                <div class="addon-card">
-                    <div class="addon-header">
+            // Fetch health data for all addons
+            let healthData: Map<string, any> = new Map();
+            try {
+                const healthSummaries = await invoke<any[]>('get_addon_health_summaries');
+                healthSummaries.forEach(h => healthData.set(h.addon_id, h));
+            } catch (err) {
+                console.warn('Could not fetch addon health data:', err);
+            }
+
+            addonsEl.innerHTML = addons.map(addon => {
+                const health = healthData.get(addon.id);
+                return this.renderAddonCard(addon, health);
+            }).join('');
+
+        } catch (err) {
+            console.error('Error loading add-ons:', err);
+            addonsEl.innerHTML = this.renderErrorState(
+                'Unable to Load Add-ons',
+                'We couldn\'t load your installed add-ons. They\'re still installed, we just can\'t display them right now.',
+                'app.loadAddons()'
+            );
+            Toast.error('Failed to load add-ons. Click retry to try again.');
+        }
+    }
+
+    private renderAddonCard(addon: any, health?: any): string {
+        // Determine health badge class and status text
+        let healthBadgeClass = 'health-unknown';
+        let healthStatusText = 'Unknown';
+        let healthScore = 0;
+        
+        if (health && health.health_score !== undefined) {
+            healthScore = health.health_score;
+            if (healthScore >= 80) {
+                healthBadgeClass = 'health-excellent';
+                healthStatusText = 'Excellent';
+            } else if (healthScore >= 60) {
+                healthBadgeClass = 'health-good';
+                healthStatusText = 'Good';
+            } else if (healthScore >= 40) {
+                healthBadgeClass = 'health-fair';
+                healthStatusText = 'Fair';
+            } else {
+                healthBadgeClass = 'health-poor';
+                healthStatusText = 'Poor';
+            }
+        }
+
+        // Build health metrics HTML
+        let healthMetrics = '';
+        if (health) {
+            const successRate = health.total_requests > 0 
+                ? Math.round((health.successful_requests / health.total_requests) * 100)
+                : 0;
+            const avgResponseTime = Math.round(health.avg_response_time_ms);
+            
+            healthMetrics = `
+                <div class="addon-health-metrics">
+                    <div class="health-metric">
+                        <span class="metric-label">Success Rate:</span>
+                        <span class="metric-value">${successRate}%</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="metric-label">Avg Response:</span>
+                        <span class="metric-value">${avgResponseTime}ms</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="metric-label">Requests:</span>
+                        <span class="metric-value">${health.total_requests}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="addon-card">
+                <div class="addon-header">
+                    <div class="addon-title-group">
                         <h3>${escapeHtml(addon.name)}</h3>
                         <span class="addon-version">v${escapeHtml(addon.version)}</span>
                     </div>
-                    <p class="addon-description">${escapeHtml(addon.description)}</p>
-                    <div class="addon-meta">
-                        <span class="addon-author">By ${escapeHtml(addon.author)}</span>
+                    <div class="addon-badges">
+                        ${health ? `<span class="addon-health-badge ${healthBadgeClass}" title="Health Score: ${healthScore}">${healthStatusText}</span>` : ''}
                         <span class="addon-status ${addon.enabled ? 'enabled' : 'disabled'}">
                             ${addon.enabled ? 'Enabled' : 'Disabled'}
                         </span>
                     </div>
                 </div>
-            `).join('');
-
-        } catch (err) {
-            console.error('Error loading add-ons:', err);
-            addonsEl.innerHTML = this.renderErrorState(
-                'Failed to Load Add-ons',
-                String(err),
-                'app.loadAddons()'
-            );
-            Toast.error(`Failed to load add-ons: ${err}`);
-        }
+                <p class="addon-description">${escapeHtml(addon.description)}</p>
+                ${healthMetrics}
+                <div class="addon-meta">
+                    <span class="addon-author">By ${escapeHtml(addon.author)}</span>
+                </div>
+            </div>
+        `;
     }
 
     attachCardListeners() {
         console.log('Attaching card listeners...');
-        const cards = document.querySelectorAll('.movie-card');
-        console.log(`Found ${cards.length} movie cards`);
+        const cards = document.querySelectorAll('.meta-item-container');
+        console.log(`Found ${cards.length} meta items`);
         
         // Card click listeners
         cards.forEach((card, index) => {
@@ -308,6 +463,17 @@ export class StreamGoApp {
             });
         });
 
+        // Play icon layer listeners
+        document.querySelectorAll('.play-icon-layer').forEach(playIcon => {
+            playIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const mediaId = (playIcon as HTMLElement).dataset.id;
+                if (mediaId) {
+                    this.showMediaDetail(mediaId);
+                }
+            });
+        });
+
         // Add to library button listeners
         document.querySelectorAll('.add-to-library-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -316,17 +482,6 @@ export class StreamGoApp {
                 const item = itemId ? (this.mediaMap[itemId] || this.searchResults.find(i => i.id === itemId)) : undefined;
                 if (item) {
                     this.addToLibrary(item);
-                }
-            });
-        });
-
-        // Play button listeners
-        document.querySelectorAll('.play-btn-overlay').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const mediaId = (btn as HTMLElement).dataset.id;
-                if (mediaId) {
-                    this.playMedia(mediaId);
                 }
             });
         });
@@ -351,18 +506,12 @@ export class StreamGoApp {
         }
     }
 
-    renderMediaCard(item: MediaItem, showAddButton: boolean, showProgress = false): string {
+    renderMediaCard(item: MediaItem, _showAddButton: boolean, showProgress = false): string {
         const posterUrl = escapeHtml(item.poster_url || 'https://via.placeholder.com/300x450?text=No+Poster');
-        const year = escapeHtml(String(item.year || 'N/A'));
-        const mediaType = typeof item.media_type === 'string' ? escapeHtml(item.media_type) : 
-                         ('Movie' in item.media_type ? 'Movie' : 
-                          'TvShow' in item.media_type ? 'TV Show' : 'Unknown');
-        const rating = item.rating ? escapeHtml(item.rating.toFixed(1)) : 'N/A';
-        const description = item.description || '';
-        const truncatedDesc = description.length > 150 ? description.substring(0, 150) + '...' : description;
-        const escapedDesc = escapeHtml(truncatedDesc);
         const escapedTitle = escapeHtml(item.title);
         const escapedId = escapeHtml(item.id);
+        const year = item.year || '';
+        const rating = item.rating ? item.rating.toFixed(1) : null;
         
         // Calculate progress percentage
         const progress = item.progress || 0;
@@ -374,22 +523,51 @@ export class StreamGoApp {
         this.mediaMap[item.id] = item;
 
         return `
-            <div class="movie-card" data-media-id="${escapedId}">
-                <div class="movie-poster">
-                    <img src="${posterUrl}" alt="${escapedTitle}" onerror="this.src='https://via.placeholder.com/300x450?text=No+Poster'">
-                    ${showProgress && progress > 0 ? `<div class="progress-bar"><div class="progress-fill" style="width: ${progressPercent}%"></div></div>` : ''}
-                    <div class="movie-overlay">
-                        ${showAddButton ? `<button class="add-to-library-btn" data-id="${escapedId}">Add to Library</button>` : `<button class="play-btn-overlay" data-id="${escapedId}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>${showProgress ? 'Resume' : 'Play'}</button>`}
+            <div class="meta-item-container poster-shape-poster animation-fade-in" data-media-id="${escapedId}">
+                <div class="poster-container">
+                    <div class="poster-image-layer">
+                        <img 
+                          data-src="${posterUrl}"
+                          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect fill='%231a1d2e' width='300' height='450'/%3E%3C/svg%3E"
+                          alt="${escapedTitle}"
+                          class="poster-image lazy-img"
+                          loading="lazy"
+                        >
                     </div>
+                    ${rating ? `
+                        <div style="position: absolute; top: 0.75rem; right: 0.75rem; z-index: 2; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(8px); padding: 0.35rem 0.6rem; border-radius: 6px; display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 600;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="#ffd700">
+                                <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                            </svg>
+                            <span style="color: #ffd700;">${rating}</span>
+                        </div>
+                    ` : ''}
+                    <div class="play-icon-layer" data-id="${escapedId}">
+                        <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <div class="play-icon-outer"></div>
+                        <div class="play-icon-background"></div>
+                    </div>
+                    ${showProgress && progressPercent > 0 ? `
+                        <div class="progress-bar-layer">
+                            <div class="progress-bar-background"></div>
+                            <div class="progress-bar" style="width: ${progressPercent}%"></div>
+                        </div>
+                    ` : ''}
+                    ${item.watched ? `
+                        <div class="watched-icon-layer">
+                            <svg class="watched-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                            </svg>
+                        </div>
+                    ` : ''}
                 </div>
-                <div class="movie-info">
-                    <h4 class="movie-title">${escapedTitle}</h4>
-                    <div class="movie-meta">
-                        <span class="movie-year">${year}</span>
-                        <span class="movie-type">${mediaType}</span>
-                        <span class="movie-rating">⭐ ${rating}</span>
+                <div class="title-bar-container">
+                    <div class="title-label">
+                        ${escapedTitle}
+                        ${year ? `<span style="opacity: 0.5; font-weight: 400; margin-left: 0.25rem;">(${year})</span>` : ''}
                     </div>
-                    ${escapedDesc ? `<p class="movie-description">${escapedDesc}</p>` : ''}
                 </div>
             </div>
         `;
@@ -563,7 +741,7 @@ export class StreamGoApp {
         
         if (confirmed) {
             try {
-                // In a real implementation, this would call a Rust function to clear cache
+                await invoke('clear_cache');
                 Toast.success('Cache cleared successfully! Freed up space.');
             } catch (err) {
                 console.error('Error clearing cache:', err);
@@ -599,11 +777,11 @@ export class StreamGoApp {
     renderMediaDetail(media: MediaItem): void {
         const posterUrl = escapeHtml(media.poster_url || 'https://via.placeholder.com/300x450?text=No+Poster');
         const backdropUrl = escapeHtml(media.backdrop_url || 'https://via.placeholder.com/1200x500?text=No+Backdrop');
-        const year = escapeHtml(String(media.year || 'N/A'));
+        const year = media.year || 'N/A';
         const mediaType = typeof media.media_type === 'string' ? escapeHtml(media.media_type) : 
                          ('Movie' in media.media_type ? 'Movie' : 
                           'TvShow' in media.media_type ? 'TV Show' : 'Unknown');
-        const rating = media.rating ? escapeHtml(media.rating.toFixed(1)) : 'N/A';
+        const rating = media.rating;
         const duration = media.duration ? escapeHtml(`${media.duration} min`) : 'N/A';
         const escapedTitle = escapeHtml(media.title);
         const escapedId = escapeHtml(media.id);
@@ -613,59 +791,99 @@ export class StreamGoApp {
         const detailHero = document.getElementById('detail-hero');
         if (detailHero) {
             detailHero.innerHTML = `
-            <img src="${backdropUrl}" alt="${escapedTitle}" class="detail-backdrop" onerror="this.src='https://via.placeholder.com/1200x500?text=No+Backdrop'">
-        `;
+                <img 
+                  data-src="${backdropUrl}"
+                  src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 500'%3E%3Crect fill='%231a1d2e' width='1200' height='500'/%3E%3C/svg%3E"
+                  alt="${escapedTitle} backdrop"
+                  class="detail-backdrop lazy-img"
+                  loading="lazy"
+                >
+                <div class="detail-hero-overlay"></div>
+            `;
         }
         
         // Content section
         const detailContent = document.getElementById('detail-content');
         if (detailContent) {
             detailContent.innerHTML = `
-            <div>
-                <img src="${posterUrl}" alt="${escapedTitle}" class="detail-poster" onerror="this.src='https://via.placeholder.com/300x450?text=No+Poster'">
-            </div>
-            <div class="detail-info">
-                <h1>${escapedTitle}</h1>
-                <div class="detail-meta">
-                    <span>${year}</span>
-                    <span>•</span>
-                    <span>${mediaType}</span>
-                    <span>•</span>
-                    <span>${duration}</span>
-                    <span class="detail-rating">⭐ ${rating}</span>
+                <div class="detail-poster-wrapper">
+                    <img 
+                      data-src="${posterUrl}"
+                      src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect fill='%231a1d2e' width='300' height='450'/%3E%3C/svg%3E"
+                      alt="${escapedTitle} poster"
+                      class="detail-poster lazy-img"
+                      loading="lazy"
+                    >
                 </div>
-                <p class="detail-description">${escapedDescription}</p>
-                ${media.genre && media.genre.length > 0 ? `
-                    <div class="detail-genres">
-                        ${media.genre.map(g => `<span class="genre-tag">${escapeHtml(g)}</span>`).join('')}
+                <div class="detail-info">
+                    <h1 class="detail-title">${escapedTitle}</h1>
+                    <div class="detail-meta">
+                        <span class="meta-item">${year}</span>
+                        <span class="meta-separator">•</span>
+                        <span class="meta-item">${mediaType}</span>
+                        ${duration !== 'N/A' ? `
+                            <span class="meta-separator">•</span>
+                            <span class="meta-item">${duration}</span>
+                        ` : ''}
+                        ${rating ? `
+                            <span class="detail-rating">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="#ffd700">
+                                    <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                                </svg>
+                                ${rating.toFixed(1)}
+                            </span>
+                        ` : ''}
                     </div>
-                ` : ''}
-                <div class="detail-actions">
-                    <button class="play-btn" onclick="app.playMedia('${escapedId}')">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M8 5v14l11-7z"/>
-                        </svg>
-                        Play
-                    </button>
-                    <button class="add-btn" onclick="app.addToLibrary(app.currentMedia)">
-                        Add to Library
-                    </button>
-                    <button class="add-btn" onclick="app.addToWatchlist('${escapedId}')">
-                        + Watchlist
-                    </button>
-                    <button class="favorite-btn" onclick="app.addToFavorites('${escapedId}')">
-                        ♥ Favorite
-                    </button>
+                    <p class="detail-description">${escapedDescription}</p>
+                    ${media.genre && media.genre.length > 0 ? `
+                        <div class="detail-genres">
+                            ${media.genre.map(g => `<span class="genre-tag">${escapeHtml(g)}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                    <div class="detail-actions">
+                        <button class="play-btn" onclick="app.playMedia('${escapedId}')">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            Play Now
+                        </button>
+                        <button class="add-btn" onclick="app.addToLibrary(app.currentMedia)">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                            </svg>
+                            Library
+                        </button>
+                        <button class="add-btn" onclick="app.addToWatchlist('${escapedId}')">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/>
+                            </svg>
+                            Watchlist
+                        </button>
+                        <button class="favorite-btn" onclick="app.addToFavorites('${escapedId}')">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                            </svg>
+                            Favorite
+                        </button>
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
         }
+
+        // After injecting detail images, initialize lazy loading for them
+        setupLazyLoading('#detail-hero img[data-src], #detail-content img[data-src]');
     }
 
     async playMedia(mediaId: string): Promise<void> {
         try {
             Toast.info('Loading stream...');
             const streamUrl = await invoke<string>('get_stream_url', { content_id: mediaId });
+            
+            // Set stream URL for external player manager
+            const externalPlayerManager = (window as any).externalPlayerManager;
+            if (externalPlayerManager) {
+                externalPlayerManager.setCurrentStream(streamUrl);
+            }
             
             // Use the global player instance
             const player = (window as any).player;
@@ -677,7 +895,7 @@ export class StreamGoApp {
             }
         } catch (err) {
             console.error('Error getting stream:', err);
-            Toast.error(`Error: ${err}`);
+            Toast.error('Unable to start playback. The stream might be unavailable.');
         }
     }
 
@@ -717,10 +935,10 @@ export class StreamGoApp {
 
     // Continue Watching
     async loadContinueWatching() {
-        const continueWatchingGrid = document.getElementById('continue-watching-grid');
+        const continueWatchingRow = document.getElementById('continue-watching-row');
         const continueWatchingSection = document.getElementById('continue-watching-section');
         
-        if (!continueWatchingGrid) return;
+        if (!continueWatchingRow) return;
 
         try {
             const items = await invoke<MediaItem[]>('get_continue_watching');
@@ -737,12 +955,94 @@ export class StreamGoApp {
                 continueWatchingSection.style.display = 'block';
             }
             
-            continueWatchingGrid.innerHTML = items.map(item => this.renderMediaCard(item, false, true)).join('');
+            continueWatchingRow.innerHTML = items.slice(0, 10).map(item => this.renderMediaCard(item, false, true)).join('');
+            // Initialize lazy loading for Continue Watching images
+            setupLazyLoading();
             this.attachCardListeners();
         } catch (err) {
             console.error('Error loading continue watching:', err);
             if (continueWatchingSection) {
                 continueWatchingSection.style.display = 'none';
+            }
+        }
+    }
+
+    // Load Trending Content
+    async loadTrending() {
+        const trendingRow = document.getElementById('trending-row');
+        const trendingSection = document.getElementById('trending-section');
+        
+        if (!trendingRow) return;
+
+        try {
+            // Try to get trending from backend, fallback to stub data
+            let items: MediaItem[] = [];
+            try {
+                items = await invoke<MediaItem[]>('get_trending');
+            } catch (err) {
+                console.warn('Backend trending not available, using stub data');
+                // Use library items as trending for now
+                items = this.libraryItems.slice(0, 10);
+            }
+            
+            if (items.length === 0) {
+                if (trendingSection) {
+                    trendingSection.style.display = 'none';
+                }
+                return;
+            }
+
+            if (trendingSection) {
+                trendingSection.style.display = 'block';
+            }
+            
+            trendingRow.innerHTML = items.map(item => this.renderMediaCard(item, false, false)).join('');
+            setupLazyLoading();
+            this.attachCardListeners();
+        } catch (err) {
+            console.error('Error loading trending:', err);
+            if (trendingSection) {
+                trendingSection.style.display = 'none';
+            }
+        }
+    }
+
+    // Load Popular Content
+    async loadPopular() {
+        const popularRow = document.getElementById('popular-row');
+        const popularSection = document.getElementById('popular-section');
+        
+        if (!popularRow) return;
+
+        try {
+            // Try to get popular from backend, fallback to stub data
+            let items: MediaItem[] = [];
+            try {
+                items = await invoke<MediaItem[]>('get_popular');
+            } catch (err) {
+                console.warn('Backend popular not available, using stub data');
+                // Use library items as popular for now
+                items = this.libraryItems.slice(0, 10);
+            }
+            
+            if (items.length === 0) {
+                if (popularSection) {
+                    popularSection.style.display = 'none';
+                }
+                return;
+            }
+
+            if (popularSection) {
+                popularSection.style.display = 'block';
+            }
+            
+            popularRow.innerHTML = items.map(item => this.renderMediaCard(item, false, false)).join('');
+            setupLazyLoading();
+            this.attachCardListeners();
+        } catch (err) {
+            console.error('Error loading popular:', err);
+            if (popularSection) {
+                popularSection.style.display = 'none';
             }
         }
     }
@@ -754,7 +1054,7 @@ export class StreamGoApp {
             Toast.success('Added to watchlist!');
         } catch (err) {
             console.error('Error adding to watchlist:', err);
-            Toast.error(`Error: ${err}`);
+            Toast.error('Couldn\'t add to watchlist. Please try again.');
         }
     }
 
@@ -764,7 +1064,7 @@ export class StreamGoApp {
             Toast.success('Removed from watchlist');
         } catch (err) {
             console.error('Error removing from watchlist:', err);
-            Toast.error(`Error: ${err}`);
+            Toast.error('Couldn\'t remove from watchlist. Please try again.');
         }
     }
 
@@ -775,7 +1075,7 @@ export class StreamGoApp {
             Toast.success('Added to favorites! ♥');
         } catch (err) {
             console.error('Error adding to favorites:', err);
-            Toast.error(`Error: ${err}`);
+            Toast.error('Couldn\'t add to favorites. Please try again.');
         }
     }
 
@@ -785,7 +1085,7 @@ export class StreamGoApp {
             Toast.success('Removed from favorites');
         } catch (err) {
             console.error('Error removing from favorites:', err);
-            Toast.error(`Error: ${err}`);
+            Toast.error('Couldn\'t remove from favorites. Please try again.');
         }
     }
 

@@ -15,7 +15,9 @@ pub use addon_protocol::{AddonClient, AddonError, Stream, StreamBehaviorHints, S
 pub use aggregator::{AggregationResult, ContentAggregator, SourceHealth, StreamAggregationResult};
 pub use cache::{CacheManager, CacheStats};
 pub use database::Database;
-pub use logging::{init_logging, log_shutdown, log_startup_info};
+pub use logging::{
+    init_logging, log_shutdown, log_startup_info, DiagnosticsInfo, PerformanceMetrics,
+};
 pub use migrations::{MigrationRunner, CURRENT_SCHEMA_VERSION};
 pub use models::*;
 pub use player::{ExternalPlayer, PlayerManager, SubtitleCue, SubtitleManager};
@@ -50,9 +52,13 @@ async fn add_to_library(item: MediaItem, state: tauri::State<'_, AppState>) -> R
 }
 
 #[tauri::command]
-async fn search_content(query: String) -> Result<Vec<MediaItem>, String> {
-    // This would integrate with external APIs like TMDB
-    api::search_movies_and_shows(&query)
+async fn search_content(
+    query: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<MediaItem>, String> {
+    // Integrate with TMDB with caching
+    let cache = state.inner().cache.clone();
+    api::search_movies_and_shows_cached(&query, Some(cache))
         .await
         .map_err(|e| e.to_string())
 }
@@ -121,8 +127,9 @@ async fn aggregate_catalogs(
         }
     };
 
-    // Query catalogs via aggregator
-    let aggregator = ContentAggregator::new();
+    // Query catalogs via aggregator with cache
+    let cache = state.inner().cache.clone();
+    let aggregator = ContentAggregator::with_cache(cache);
     let result = aggregator
         .query_catalogs(&addons, &media_type, &catalog_id, &extra)
         .await;
@@ -133,6 +140,25 @@ async fn aggregate_catalogs(
         duration_ms = result.total_time_ms,
         "Catalog aggregation complete"
     );
+
+    // Record health metrics for each addon
+    let db_for_health = state.inner().db.clone();
+    let sources_clone = result.sources.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Ok(db) = db_for_health.lock() {
+            for source in sources_clone {
+                let error_msg = source.error.as_deref();
+                let _ = db.record_addon_health(
+                    &source.addon_id,
+                    source.response_time_ms,
+                    source.success,
+                    error_msg,
+                    source.item_count,
+                    "catalog",
+                );
+            }
+        }
+    });
 
     // Convert to JSON for frontend
     Ok(serde_json::json!({
@@ -190,11 +216,31 @@ async fn get_stream_url(
         }
     };
 
-    // 2) Query streams via aggregator (default media_type to 'movie' for backward compatibility)
-    let aggregator = ContentAggregator::new();
+    // 2) Query streams via aggregator with cache (default media_type to 'movie' for backward compatibility)
+    let cache = state.inner().cache.clone();
+    let aggregator = ContentAggregator::with_cache(cache);
     let result = aggregator
         .query_streams(&addons, "movie", &content_id)
         .await;
+
+    // Record health metrics for each addon
+    let db_for_health = state.inner().db.clone();
+    let sources_clone = result.sources.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Ok(db) = db_for_health.lock() {
+            for source in sources_clone {
+                let error_msg = source.error.as_deref();
+                let _ = db.record_addon_health(
+                    &source.addon_id,
+                    source.response_time_ms,
+                    source.success,
+                    error_msg,
+                    source.item_count,
+                    "stream",
+                );
+            }
+        }
+    });
 
     if let Some(url) = select_best_stream(&result.streams) {
         tracing::info!(
@@ -400,8 +446,13 @@ async fn uninstall_addon(
 }
 
 #[tauri::command]
-async fn get_media_details(content_id: String, media_type: MediaType) -> Result<MediaItem, String> {
-    api::get_media_details(&content_id, &media_type)
+async fn get_media_details(
+    content_id: String,
+    media_type: MediaType,
+    state: tauri::State<'_, AppState>,
+) -> Result<MediaItem, String> {
+    let cache = state.inner().cache.clone();
+    api::get_media_details_cached(&content_id, &media_type, Some(cache))
         .await
         .map_err(|e| e.to_string())
 }
@@ -849,6 +900,17 @@ async fn get_available_players() -> Result<Vec<ExternalPlayer>, String> {
 }
 
 #[tauri::command]
+async fn launch_external_player(
+    player: ExternalPlayer,
+    url: String,
+    subtitle: Option<String>,
+) -> Result<(), String> {
+    player
+        .launch(&url, subtitle.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn download_subtitle(url: String) -> Result<String, String> {
     SubtitleManager::download_subtitle(&url)
         .await
@@ -865,8 +927,74 @@ async fn parse_vtt_subtitle(vtt_content: String) -> Result<Vec<SubtitleCue>, Str
     SubtitleManager::parse_vtt(&vtt_content).map_err(|e| e.to_string())
 }
 
+// Diagnostics and metrics commands
+#[tauri::command]
+async fn get_performance_metrics() -> Result<logging::PerformanceMetrics, String> {
+    Ok(logging::get_metrics())
+}
+
+#[tauri::command]
+async fn export_diagnostics() -> Result<logging::DiagnosticsInfo, String> {
+    logging::export_diagnostics().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn export_diagnostics_file() -> Result<String, String> {
+    let output_path = dirs::data_local_dir()
+        .ok_or_else(|| "Could not find data directory".to_string())?
+        .join("StreamGo")
+        .join(format!(
+            "diagnostics-{}.json",
+            chrono::Utc::now().timestamp()
+        ));
+
+    logging::export_diagnostics_to_file(&output_path).map_err(|e| e.to_string())?;
+
+    Ok(output_path.display().to_string())
+}
+
+#[tauri::command]
+async fn reset_performance_metrics() -> Result<(), String> {
+    logging::reset_metrics();
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_addon_health_summaries(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<AddonHealthSummary>, String> {
+    let db = state.inner().db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_all_addon_health_summaries()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_addon_health(
+    addon_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<AddonHealthSummary>, String> {
+    let db = state.inner().db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_addon_health_summary(&addon_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Fix webkit2gtk 2.50.x explicit sync bug with Wayland compositors
+    // See: https://bugs.webkit.org/show_bug.cgi?id=283064
+    #[cfg(target_os = "linux")]
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
     // Initialize logging system first
     if let Some(app_data_dir) = dirs::data_local_dir() {
         let log_dir = app_data_dir.join("StreamGo").join("logs");
@@ -979,11 +1107,18 @@ pub fn run() {
             clear_cache,
             clear_expired_cache,
             get_available_players,
+            launch_external_player,
             export_user_data,
             get_log_directory_path,
             download_subtitle,
             convert_srt_to_vtt,
-            parse_vtt_subtitle
+            parse_vtt_subtitle,
+            get_performance_metrics,
+            export_diagnostics,
+            export_diagnostics_file,
+            reset_performance_metrics,
+            get_addon_health_summaries,
+            get_addon_health
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

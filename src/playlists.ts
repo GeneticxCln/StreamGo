@@ -1,7 +1,8 @@
 // Playlist Management Module
-import type { Playlist, MediaItem } from './types/tauri';
+import type { MediaItem, Playlist } from './types/tauri';
 import { invoke } from './utils';
 import { Toast, Modal } from './ui-utils';
+import { setupLazyLoading } from './utils/imageLazyLoad';
 
 export class PlaylistManager {
     private playlists: Playlist[] = [];
@@ -242,6 +243,9 @@ export class PlaylistManager {
                     .map((item, index) => this.renderPlaylistItem(item, index))
                     .join('');
                 
+                // Initialize lazy loading for playlist item images
+                setupLazyLoading('.playlist-item-poster[data-src]');
+                
                 this.attachPlaylistItemListeners();
             }
         }
@@ -267,7 +271,12 @@ export class PlaylistManager {
                     </svg>
                 </div>
                 <div class="playlist-item-number">${index + 1}</div>
-                <img src="${posterUrl}" alt="${this.escapeHtml(item.title)}" class="playlist-item-poster">
+                <img 
+                  data-src="${posterUrl}"
+                  src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 90'%3E%3Crect fill='%232a2a2a' width='60' height='90'/%3E%3C/svg%3E"
+                  alt="${this.escapeHtml(item.title)}"
+                  class="playlist-item-poster lazy-img"
+                >
                 <div class="playlist-item-info">
                     <div class="playlist-item-title">${this.escapeHtml(item.title)}${year}</div>
                     <div class="playlist-item-meta">
@@ -524,10 +533,10 @@ export class PlaylistManager {
     }
 
     private playMedia(mediaId: string) {
-        // Navigate to player with media ID
-        const media = this.currentPlaylistItems.find(m => m.id === mediaId);
-        if (media) {
-            window.location.href = `player/index.html?id=${mediaId}&title=${encodeURIComponent(media.title)}`;
+        const app = (window as any).app;
+        if (app && typeof app.showMediaDetail === 'function' && typeof app.playMedia === 'function') {
+            app.showMediaDetail(mediaId);
+            app.playMedia(mediaId);
         }
     }
 
@@ -539,9 +548,12 @@ export class PlaylistManager {
                 return;
             }
 
-            // Play first item with playlist context
             const firstItem = items[0];
-            window.location.href = `player/index.html?id=${firstItem.id}&title=${encodeURIComponent(firstItem.title)}&playlist=${playlistId}`;
+            const app = (window as any).app;
+            if (app && typeof app.showMediaDetail === 'function' && typeof app.playMedia === 'function') {
+                app.showMediaDetail(firstItem.id);
+                await app.playMedia(firstItem.id);
+            }
         } catch (err) {
             console.error('Failed to play playlist:', err);
             Toast.error(`Failed to play playlist: ${err}`);

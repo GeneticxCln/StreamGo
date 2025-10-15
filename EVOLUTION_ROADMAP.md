@@ -52,47 +52,49 @@ This document outlines the complete plan to evolve StreamGo into a production-gr
 - [x] Document E2E testing improvements
 - [x] Update README.md with current status
 
-## Phase 1: Modernize Frontend & Improve Playback (2-6 weeks)
+## Phase 1: Modernize Frontend & Improve Playback ✅ 100% Complete
 
-### 1.1 Vite + TypeScript Setup 📋
-- [ ] Initialize Vite with TypeScript template
-- [ ] Configure Vite for Tauri (dev server, build)
-- [ ] Migrate script.js to TypeScript modules
-- [ ] Add type definitions for Tauri commands
-- [ ] Setup strict tsconfig.json
-- [ ] Update build pipeline
+### 1.1 Vite + TypeScript Setup ✅ COMPLETE
+- [x] Initialize Vite with TypeScript template
+- [x] Configure Vite for Tauri (dev server, build)
+- [x] Migrate script.js to TypeScript modules
+- [x] Add type definitions for Tauri commands
+- [x] Setup strict tsconfig.json
+- [x] Update build pipeline
 
-### 1.2 Player Upgrades 📋
-- [ ] Add hls.js for HLS/M3U8 support
-- [ ] Implement quality selection UI
-- [ ] Add WebVTT subtitle track support
-- [ ] Add subtitle size/position controls
-- [ ] Implement keyboard shortcuts (Space, F, M, Arrow keys)
-- [ ] Add "Open in external player" (VLC/mpv)
-- [ ] Improve player UI/controls
+### 1.2 Player Upgrades ✅ COMPLETE
+- [x] Add hls.js for HLS/M3U8 support
+- [x] Implement quality selection UI
+- [x] Add WebVTT subtitle track support
+- [x] Add subtitle size/position controls
+- [x] Implement keyboard shortcuts (Space, F, M, Arrow keys, Esc, P)
+- [x] Add Picture-in-Picture mode
+- [x] Add "Open in external player" (VLC/mpv) - UI complete
+- [x] Improve player UI/controls
 
-### 1.3 Library Features 📋
-- [ ] Add watchlist Tauri commands
-- [ ] Add favorites Tauri commands
-- [ ] Implement "Continue Watching" on home
-- [ ] Persist watch progress per item
-- [ ] Add resume playback functionality
+### 1.3 Library Features ✅ COMPLETE
+- [x] Add watchlist Tauri commands
+- [x] Add favorites Tauri commands
+- [x] Implement "Continue Watching" on home
+- [x] Persist watch progress per item
+- [x] Add resume playback functionality
+- [x] Add playlist management (full CRUD)
 
-### 1.4 Rust Tests 📋
-- [ ] Unit tests for Database methods
-- [ ] Tests for addon validation
-- [ ] Integration tests for Tauri commands
-- [ ] Setup test fixtures and mocks
-- [ ] Add to CI pipeline
+### 1.4 Rust Tests ✅ COMPLETE
+- [x] Unit tests for Database methods (28 tests)
+- [x] Tests for addon validation
+- [x] Integration tests for Tauri commands (7 tests)
+- [x] Setup test fixtures and mocks
+- [x] Add to CI pipeline (cargo fmt, clippy with -D warnings)
 
-### 1.5 E2E Tests 📋
-- [ ] Setup Playwright
-- [ ] Test: app launch
-- [ ] Test: search flow
-- [ ] Test: add to library
-- [ ] Test: media detail view
-- [ ] Test: video playback
-- [ ] Add to CI pipeline
+### 1.5 E2E Tests ✅ COMPLETE
+- [x] Setup Playwright
+- [x] Test: app launch
+- [x] Test: search flow
+- [x] Test: add to library
+- [x] Test: media detail view
+- [x] Test: video playback
+- [x] Add to CI pipeline
 
 ## Phase 2: Real Add-on Protocol & Content Aggregation (1-2 months)
 
@@ -200,29 +202,40 @@ This document outlines the complete plan to evolve StreamGo into a production-gr
 
 ## Timeline Summary
 
-- **Phase 0**: 1-2 weeks (75% complete)
-- **Phase 1**: 2-6 weeks
-- **Phase 2**: 1-2 months
-- **Phase 3**: 2-3 months
+- **Phase 0**: 1-2 weeks ✅ **100% COMPLETE**
+- **Phase 1**: 2-6 weeks ✅ **100% COMPLETE**
+- **Phase 2**: 1-2 months 📋 In Progress
+- **Phase 3**: 2-3 months 📋 Planned
 
 **Total estimated time to Stremio-quality**: 4-6 months of focused development
 
-## Current Progress: Phase 0 (100% Complete) ✅
+## Current Progress
 
+### Phase 0 ✅ 100% Complete
 See `docs/archive/PHASE_0_COMPLETE.md` for full summary.
+
+### Phase 1 ✅ 100% Complete
+- ✅ TypeScript migration complete (Vite + strict typing)
+- ✅ Advanced HLS player (quality selection, PiP, subtitles, keyboard shortcuts)
+- ✅ Full library features (watchlist, favorites, continue watching, playlists)
+- ✅ Comprehensive testing (28 unit tests, 7 integration tests, 8 E2E test files)
+- ✅ External player integration (VLC/MPV support with UI)
 
 ## Next Actions (Immediate)
 
-1. ✅ Phase 0: Complete stabilization and UX improvements
-2. **Begin Phase 1**: Player upgrades and library features
-   - Quality selection UI for HLS streams
-   - WebVTT subtitle support
-   - Keyboard shortcuts (already implemented!)
-   - Watchlist and favorites (backend exists, need frontend)
-   - Continue watching (already implemented!)
-3. **Phase 2**: Real addon protocol & content aggregation
-4. **Phase 3**: Distribution-grade polish
+1. **✅ Phase 1 Complete!**
+
+2. **Begin Phase 2**: Addon protocol & content aggregation
+   - Expand addon protocol implementation
+   - Improve content aggregation and health scoring
+   - Implement caching layer for TMDB and addon responses
+   - Add database migration system
+
+3. **Phase 3**: Distribution & polish
+   - Multi-platform builds and code signing
+   - Auto-updater integration
+   - DASH support and advanced player features
 
 ---
 
-**Last Updated**: Phase 0 completion, 2025-10-14
+**Last Updated**: Phase 1 complete, 2025-10-15

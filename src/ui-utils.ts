@@ -182,6 +182,66 @@ const Modal = {
             defaultValue,
             showCancel: true
         }) as Promise<string | null>;
+    },
+    
+    select(message: string, title = 'Select', options: Array<{value: string, label: string}>): Promise<string | null> {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            
+            let html = '<div class="modal-header">';
+            html += `<h3 class="modal-title">${escapeHtml(title)}</h3>`;
+            html += '</div>';
+            
+            html += '<div class="modal-body">';
+            html += `<p>${escapeHtml(message)}</p>`;
+            html += '<div class="modal-select-list">';
+            
+            options.forEach(opt => {
+                html += `<button class="modal-select-option" data-value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</button>`;
+            });
+            
+            html += '</div></div>';
+            
+            html += '<div class="modal-footer">';
+            html += '<button class="btn btn-secondary modal-cancel">Cancel</button>';
+            html += '</div>';
+            
+            modal.innerHTML = html;
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+            
+            const cancelBtn = modal.querySelector<HTMLButtonElement>('.modal-cancel');
+            const optionBtns = modal.querySelectorAll<HTMLButtonElement>('.modal-select-option');
+            
+            const close = (result: string | null) => {
+                overlay.style.animation = 'fadeOut 0.2s ease-in';
+                setTimeout(() => {
+                    overlay.remove();
+                }, 200);
+                resolve(result);
+            };
+            
+            optionBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const value = btn.getAttribute('data-value');
+                    close(value);
+                });
+            });
+            
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => close(null));
+            }
+            
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    close(null);
+                }
+            });
+        });
     }
 };
 

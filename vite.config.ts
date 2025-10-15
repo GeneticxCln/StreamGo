@@ -17,7 +17,7 @@ export default defineConfig({
     },
   },
   // Env variables starting with VITE_ are exposed to the client
-  envPrefix: ['VITE_', 'TAURI_'],
+  envPrefix: ['VITE_'],
   build: {
     // Tauri uses Chromium on Windows and WebKit on macOS and Linux
     target: process.env.TAURI_PLATFORM == 'windows' ? 'chrome105' : 'safari13',

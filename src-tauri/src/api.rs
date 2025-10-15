@@ -1,15 +1,79 @@
+use crate::cache::{ttl, CacheManager};
 use crate::models::*;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
+use std::sync::{Arc, Mutex};
 
 // Mock TMDB API integration (in a real app, you'd use actual API keys)
 const TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 
+#[allow(dead_code)]
 pub async fn search_movies_and_shows(query: &str) -> Result<Vec<MediaItem>> {
-    search_tmdb(query).await
+    search_movies_and_shows_cached(query, None).await
 }
 
+pub async fn search_movies_and_shows_cached(
+    query: &str,
+    cache: Option<Arc<Mutex<CacheManager>>>,
+) -> Result<Vec<MediaItem>> {
+    // Generate cache key
+    let cache_key = format!("tmdb:search:{}", query);
+
+    // Try to get from cache first
+    if let Some(cache_manager) = &cache {
+        if let Ok(cache_guard) = cache_manager.lock() {
+            if let Ok(Some(cached_results)) = cache_guard.get_metadata::<Vec<MediaItem>>(&cache_key)
+            {
+                tracing::debug!(query = %query, "TMDB search results from cache");
+                return Ok(cached_results);
+            }
+        }
+    }
+
+    // Cache miss, fetch from API
+    tracing::debug!(query = %query, "TMDB search results from API");
+    let results = search_tmdb(query).await?;
+
+    // Store in cache
+    if let Some(cache_manager) = &cache {
+        if let Ok(cache_guard) = cache_manager.lock() {
+            let _ = cache_guard.set_metadata(&cache_key, &results, ttl::METADATA);
+        }
+    }
+
+    Ok(results)
+}
+
+#[allow(dead_code)]
 pub async fn get_media_details(content_id: &str, media_type: &MediaType) -> Result<MediaItem> {
+    get_media_details_cached(content_id, media_type, None).await
+}
+
+pub async fn get_media_details_cached(
+    content_id: &str,
+    media_type: &MediaType,
+    cache: Option<Arc<Mutex<CacheManager>>>,
+) -> Result<MediaItem> {
+    // Generate cache key
+    let media_type_str = match media_type {
+        MediaType::Movie => "movie",
+        MediaType::TvShow => "tv",
+        _ => "movie",
+    };
+    let cache_key = format!("tmdb:details:{}:{}", media_type_str, content_id);
+
+    // Try to get from cache first
+    if let Some(cache_manager) = &cache {
+        if let Ok(cache_guard) = cache_manager.lock() {
+            if let Ok(Some(cached_item)) = cache_guard.get_metadata::<MediaItem>(&cache_key) {
+                tracing::debug!(content_id = %content_id, "TMDB details from cache");
+                return Ok(cached_item);
+            }
+        }
+    }
+
+    // Cache miss, fetch from API
+    tracing::debug!(content_id = %content_id, "TMDB details from API");
     let api_key = std::env::var("TMDB_API_KEY")
         .map_err(|_| anyhow!("TMDB_API_KEY environment variable not set"))?;
 
@@ -30,8 +94,17 @@ pub async fn get_media_details(content_id: &str, media_type: &MediaType) -> Resu
 
     let json: Value = response.json().await?;
 
-    parse_tmdb_movie_details(&json, media_type)
-        .ok_or_else(|| anyhow!("Failed to parse TMDB result"))
+    let item = parse_tmdb_movie_details(&json, media_type)
+        .ok_or_else(|| anyhow!("Failed to parse TMDB result"))?;
+
+    // Store in cache
+    if let Some(cache_manager) = &cache {
+        if let Ok(cache_guard) = cache_manager.lock() {
+            let _ = cache_guard.set_metadata(&cache_key, &item, ttl::METADATA);
+        }
+    }
+
+    Ok(item)
 }
 
 fn parse_tmdb_movie_details(result: &Value, media_type: &MediaType) -> Option<MediaItem> {

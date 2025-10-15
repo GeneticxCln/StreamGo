@@ -777,6 +777,208 @@ impl Database {
         }
         Ok(items)
     }
+
+    // Addon health tracking methods
+
+    /// Record a single health check event for an addon
+    pub fn record_addon_health(
+        &self,
+        addon_id: &str,
+        response_time_ms: u128,
+        success: bool,
+        error_message: Option<&str>,
+        item_count: usize,
+        operation_type: &str,
+    ) -> Result<(), anyhow::Error> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        self.conn.execute(
+            "INSERT INTO addon_health 
+             (addon_id, timestamp, response_time_ms, success, error_message, item_count, operation_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                addon_id,
+                now as i64,
+                response_time_ms as i64,
+                success,
+                error_message,
+                item_count as i64,
+                operation_type,
+            ],
+        )?;
+
+        // Update summary statistics
+        self.update_addon_health_summary(addon_id)?;
+
+        Ok(())
+    }
+
+    /// Update health summary statistics for an addon
+    fn update_addon_health_summary(&self, addon_id: &str) -> Result<(), anyhow::Error> {
+        // Calculate statistics from recent health records (last 100 records)
+        let mut stmt = self.conn.prepare(
+            "SELECT response_time_ms, success, error_message
+             FROM addon_health
+             WHERE addon_id = ?1
+             ORDER BY timestamp DESC
+             LIMIT 100",
+        )?;
+
+        let mut total = 0;
+        let mut successful = 0;
+        let mut total_response_time: i64 = 0;
+        let mut last_error: Option<String> = None;
+
+        let rows = stmt.query_map(params![addon_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, bool>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+
+        for row in rows {
+            let (response_time, success, error) = row?;
+            total += 1;
+            total_response_time += response_time;
+            if success {
+                successful += 1;
+            } else if last_error.is_none() && error.is_some() {
+                last_error = error;
+            }
+        }
+
+        if total == 0 {
+            return Ok(()); // No records to process
+        }
+
+        let success_rate = successful as f64 / total as f64;
+        let avg_response_time = total_response_time / total;
+        let failed = total - successful;
+
+        // Calculate health score (0.0 to 100.0)
+        // Based on success rate (70%) and response time (30%)
+        let success_score = success_rate * 70.0;
+        let response_score = if avg_response_time < 500 {
+            30.0
+        } else if avg_response_time < 1000 {
+            25.0
+        } else if avg_response_time < 2000 {
+            20.0
+        } else if avg_response_time < 3000 {
+            15.0
+        } else {
+            10.0
+        };
+        let health_score = success_score + response_score;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO addon_health_summary 
+             (addon_id, last_check, success_rate, avg_response_time_ms, 
+              total_requests, successful_requests, failed_requests, last_error, health_score)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                addon_id,
+                now as i64,
+                success_rate,
+                avg_response_time,
+                total,
+                successful,
+                failed,
+                last_error,
+                health_score,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get health summary for a specific addon
+    pub fn get_addon_health_summary(
+        &self,
+        addon_id: &str,
+    ) -> Result<Option<AddonHealthSummary>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT addon_id, last_check, success_rate, avg_response_time_ms, 
+                    total_requests, successful_requests, failed_requests, last_error, health_score
+             FROM addon_health_summary
+             WHERE addon_id = ?1",
+        )?;
+
+        let result = stmt.query_row(params![addon_id], |row| {
+            Ok(AddonHealthSummary {
+                addon_id: row.get(0)?,
+                last_check: row.get(1)?,
+                success_rate: row.get(2)?,
+                avg_response_time_ms: row.get(3)?,
+                total_requests: row.get(4)?,
+                successful_requests: row.get(5)?,
+                failed_requests: row.get(6)?,
+                last_error: row.get(7)?,
+                health_score: row.get(8)?,
+            })
+        });
+
+        match result {
+            Ok(summary) => Ok(Some(summary)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Get health summaries for all addons
+    pub fn get_all_addon_health_summaries(&self) -> Result<Vec<AddonHealthSummary>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT addon_id, last_check, success_rate, avg_response_time_ms, 
+                    total_requests, successful_requests, failed_requests, last_error, health_score
+             FROM addon_health_summary
+             ORDER BY health_score DESC",
+        )?;
+
+        let summaries = stmt.query_map([], |row| {
+            Ok(AddonHealthSummary {
+                addon_id: row.get(0)?,
+                last_check: row.get(1)?,
+                success_rate: row.get(2)?,
+                avg_response_time_ms: row.get(3)?,
+                total_requests: row.get(4)?,
+                successful_requests: row.get(5)?,
+                failed_requests: row.get(6)?,
+                last_error: row.get(7)?,
+                health_score: row.get(8)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for summary in summaries {
+            result.push(summary?);
+        }
+        Ok(result)
+    }
+
+    /// Clean old health records (keep only last 30 days)
+    pub fn cleanup_old_health_records(&self) -> Result<usize, anyhow::Error> {
+        let thirty_days_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - (30 * 24 * 3600);
+
+        let deleted = self.conn.execute(
+            "DELETE FROM addon_health WHERE timestamp < ?1",
+            params![thirty_days_ago as i64],
+        )?;
+
+        Ok(deleted)
+    }
 }
 
 #[cfg(test)]
@@ -1273,5 +1475,135 @@ mod tests {
         // Verify item count is 0
         let playlist = db.get_playlist(playlist_id).unwrap().unwrap();
         assert_eq!(playlist.item_count, 0);
+    }
+
+    #[test]
+    fn test_record_and_get_addon_health() {
+        let db = create_test_db().unwrap();
+        let addon_id = "test-addon";
+
+        // Record successful request
+        db.record_addon_health(addon_id, 150, true, None, 10, "catalog")
+            .unwrap();
+
+        // Get health summary
+        let summary = db.get_addon_health_summary(addon_id).unwrap();
+        assert!(summary.is_some());
+
+        let summary = summary.unwrap();
+        assert_eq!(summary.addon_id, addon_id);
+        assert_eq!(summary.total_requests, 1);
+        assert_eq!(summary.successful_requests, 1);
+        assert_eq!(summary.failed_requests, 0);
+        assert_eq!(summary.success_rate, 1.0); // success_rate is a fraction (0.0-1.0)
+        assert!(summary.avg_response_time_ms > 0);
+        assert!(summary.health_score > 0.0);
+    }
+
+    #[test]
+    fn test_addon_health_with_failures() {
+        let db = create_test_db().unwrap();
+        let addon_id = "unreliable-addon";
+
+        // Record 2 successful and 1 failed request (with delays to avoid timestamp collision)
+        // Note: timestamps are in seconds, so we need 1+ second delays
+        db.record_addon_health(addon_id, 100, true, None, 5, "catalog")
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        db.record_addon_health(addon_id, 120, true, None, 3, "stream")
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        db.record_addon_health(addon_id, 0, false, Some("Timeout"), 0, "catalog")
+            .unwrap();
+
+        // Get health summary
+        let summary = db.get_addon_health_summary(addon_id).unwrap().unwrap();
+        assert_eq!(summary.total_requests, 3);
+        assert_eq!(summary.successful_requests, 2);
+        assert_eq!(summary.failed_requests, 1);
+        assert!((summary.success_rate - 0.6667).abs() < 0.01); // Approximately 2/3
+        assert_eq!(summary.last_error, Some("Timeout".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_addon_health_summaries() {
+        let db = create_test_db().unwrap();
+
+        // Record health for multiple addons
+        db.record_addon_health("addon1", 50, true, None, 10, "catalog")
+            .unwrap();
+        db.record_addon_health("addon2", 200, true, None, 5, "catalog")
+            .unwrap();
+        db.record_addon_health("addon3", 100, false, Some("Error"), 0, "catalog")
+            .unwrap();
+
+        // Get all summaries
+        let summaries = db.get_all_addon_health_summaries().unwrap();
+        assert_eq!(summaries.len(), 3);
+
+        // Verify they're ordered by health_score DESC
+        // addon1 (fast, successful) should have best score
+        assert_eq!(summaries[0].addon_id, "addon1");
+    }
+
+    #[test]
+    fn test_addon_health_score_calculation() {
+        let db = create_test_db().unwrap();
+        let addon_id = "test-addon";
+
+        // Record a perfect request (fast and successful)
+        db.record_addon_health(addon_id, 50, true, None, 10, "catalog")
+            .unwrap();
+
+        let summary = db.get_addon_health_summary(addon_id).unwrap().unwrap();
+        let initial_score = summary.health_score;
+        // Fast response + 100% success rate should give high score (70% success + 30% response = 100)
+        assert!(initial_score > 95.0);
+
+        // Now add slow requests (with delays to avoid timestamp collisions)
+        // Note: timestamps are in seconds, so we need 1+ second delays
+        for _ in 0..5 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            db.record_addon_health(addon_id, 2000, true, None, 10, "catalog")
+                .unwrap();
+        }
+
+        let summary = db.get_addon_health_summary(addon_id).unwrap().unwrap();
+        // Slow responses should lower the score compared to initial
+        // With 100% success (70 pts) + slow response (~15-20 pts) = ~85-90 pts
+        assert!(summary.health_score < initial_score);
+        assert!(summary.health_score < 95.0);
+        assert!(summary.health_score > 80.0); // Still pretty good due to 100% success rate
+    }
+
+    #[test]
+    fn test_cleanup_old_health_records() {
+        let db = create_test_db().unwrap();
+        let addon_id = "test-addon";
+
+        // Record some health data
+        db.record_addon_health(addon_id, 100, true, None, 10, "catalog")
+            .unwrap();
+
+        // Verify record exists
+        let summary_before = db.get_addon_health_summary(addon_id).unwrap();
+        assert!(summary_before.is_some());
+
+        // Note: In a real test, we'd manipulate timestamps to simulate old records
+        // For now, just verify the cleanup function runs without error
+        let deleted = db.cleanup_old_health_records().unwrap();
+        // Since we just created records, none should be deleted
+        assert_eq!(deleted, 0);
+    }
+
+    #[test]
+    fn test_addon_health_summary_for_nonexistent_addon() {
+        let db = create_test_db().unwrap();
+
+        // Try to get health for addon that doesn't exist
+        let summary = db.get_addon_health_summary("nonexistent").unwrap();
+        assert!(summary.is_none());
     }
 }

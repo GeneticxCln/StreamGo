@@ -193,7 +193,7 @@ export class ProgressiveImageLoader {
  * Image cache manager
  */
 export class ImageCache {
-  private static cache = new Map<string, Blob>();
+  private static cache = new Map<string, { blob: Blob; url: string }>();
   private static maxSize = 50 * 1024 * 1024; // 50MB
   private static currentSize = 0;
 
@@ -204,21 +204,22 @@ export class ImageCache {
     // Check cache first
     const cached = this.cache.get(url);
     if (cached) {
-      return URL.createObjectURL(cached);
+      return cached.url;
     }
 
     // Fetch and cache
     try {
       const response = await fetch(url);
       const blob = await response.blob();
+      const objUrl = URL.createObjectURL(blob);
 
       // Add to cache if there's space
       if (this.currentSize + blob.size < this.maxSize) {
-        this.cache.set(url, blob);
+        this.cache.set(url, { blob, url: objUrl });
         this.currentSize += blob.size;
       }
 
-      return URL.createObjectURL(blob);
+      return objUrl;
     } catch (error) {
       console.error('Failed to fetch image:', error);
       throw error;
@@ -229,9 +230,9 @@ export class ImageCache {
    * Clear cache
    */
   static clear(): void {
-    // Revoke all object URLs
-    this.cache.forEach((blob) => {
-      URL.revokeObjectURL(URL.createObjectURL(blob));
+    // Revoke all object URLs we created
+    this.cache.forEach((entry) => {
+      URL.revokeObjectURL(entry.url);
     });
 
     this.cache.clear();

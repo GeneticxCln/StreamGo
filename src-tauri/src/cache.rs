@@ -269,6 +269,12 @@ pub mod ttl {
 
     /// Addon manifests: 1 week
     pub const MANIFEST: Duration = Duration::from_secs(7 * 24 * 3600);
+
+    /// Addon catalog responses: 1 hour
+    pub const ADDON_CATALOG_TTL: Duration = Duration::from_secs(3600);
+
+    /// Addon stream responses: 5 minutes
+    pub const ADDON_STREAM_TTL: Duration = Duration::from_secs(5 * 60);
 }
 
 #[cfg(test)]
@@ -345,5 +351,79 @@ mod tests {
         cache.clear_all().unwrap();
         let stats = cache.get_stats().unwrap();
         assert_eq!(stats.addon_total, 0);
+    }
+
+    #[test]
+    fn test_cache_stats() {
+        let cache = CacheManager::new(None).unwrap();
+        let data = TestData {
+            id: "test".to_string(),
+            value: 42,
+        };
+
+        // Initially empty
+        let stats = cache.get_stats().unwrap();
+        assert_eq!(stats.metadata_total, 0);
+        assert_eq!(stats.addon_total, 0);
+
+        // Add some cache entries
+        cache
+            .set_metadata("key1", &data, Duration::from_secs(60))
+            .unwrap();
+        cache
+            .set_metadata("key2", &data, Duration::from_secs(60))
+            .unwrap();
+        cache
+            .set_addon_response("key1", "addon1", &data, Duration::from_secs(60))
+            .unwrap();
+
+        // Check stats
+        let stats = cache.get_stats().unwrap();
+        assert_eq!(stats.metadata_total, 2);
+        assert_eq!(stats.metadata_valid, 2);
+        assert_eq!(stats.metadata_expired, 0);
+        assert_eq!(stats.addon_total, 1);
+        assert_eq!(stats.addon_valid, 1);
+        assert_eq!(stats.addon_expired, 0);
+    }
+
+    #[test]
+    fn test_expired_cache_cleanup() {
+        let cache = CacheManager::new(None).unwrap();
+        let data = TestData {
+            id: "test".to_string(),
+            value: 42,
+        };
+
+        // Add entries with very short TTL (1 nanosecond to ensure immediate expiration)
+        cache
+            .set_metadata("expired1", &data, Duration::from_nanos(1))
+            .unwrap();
+        cache
+            .set_metadata("expired2", &data, Duration::from_nanos(1))
+            .unwrap();
+
+        // Add entry with long TTL
+        cache
+            .set_metadata("valid", &data, Duration::from_secs(3600))
+            .unwrap();
+
+        // Give expired entries time to actually expire
+        std::thread::sleep(Duration::from_millis(10));
+
+        // Check that some are expired
+        let stats = cache.get_stats().unwrap();
+        assert_eq!(stats.metadata_total, 3);
+        assert_eq!(stats.metadata_expired, 2);
+        assert_eq!(stats.metadata_valid, 1);
+
+        // Clear expired
+        let deleted = cache.clear_expired().unwrap();
+        assert_eq!(deleted, 2);
+
+        // Check stats after cleanup
+        let stats = cache.get_stats().unwrap();
+        assert_eq!(stats.metadata_total, 1);
+        assert_eq!(stats.metadata_expired, 0);
     }
 }

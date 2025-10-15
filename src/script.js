@@ -1,5 +1,44 @@
 // StreamGo App - Main Application Logic
 
+// Lazy loading utility (inline version for script.js)
+const setupLazyLoading = (selector = 'img[data-src]') => {
+    if (!('IntersectionObserver' in window)) {
+        // Fallback for browsers without IntersectionObserver
+        document.querySelectorAll(selector).forEach(img => {
+            if (img.dataset.src) {
+                img.src = img.dataset.src;
+            }
+        });
+        return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                img.classList.add('lazy-loading');
+                
+                const tempImg = new Image();
+                tempImg.onload = () => {
+                    img.src = img.dataset.src;
+                    img.classList.remove('lazy-loading');
+                    img.classList.add('lazy-loaded');
+                    observer.unobserve(img);
+                };
+                tempImg.onerror = () => {
+                    img.classList.remove('lazy-loading');
+                    img.classList.add('lazy-error');
+                    img.src = 'https://via.placeholder.com/300x450?text=Error';
+                    observer.unobserve(img);
+                };
+                tempImg.src = img.dataset.src;
+            }
+        });
+    }, { rootMargin: '50px', threshold: 0.01 });
+
+    document.querySelectorAll(selector).forEach(img => observer.observe(img));
+};
+
 // HTML sanitization utility
 const escapeHtml = (unsafe) => {
     if (typeof unsafe !== 'string') return '';
@@ -181,6 +220,9 @@ class StreamGoApp {
 
             resultsEl.innerHTML = results.map(item => this.renderMediaCard(item, true)).join('');
 
+            // Initialize lazy loading for search results
+            setupLazyLoading();
+
             // Add event listeners to cards and buttons
             this.attachCardListeners();
 
@@ -248,6 +290,7 @@ class StreamGoApp {
             
             if (libraryEl) {
                 libraryEl.innerHTML = html;
+                setupLazyLoading();
                 this.attachCardListeners();
             }
             
@@ -255,6 +298,7 @@ class StreamGoApp {
                 // Show only first 6 items on home page
                 const recentItems = items.slice(0, 6);
                 recentLibraryEl.innerHTML = recentItems.map(item => this.renderMediaCard(item, false)).join('');
+                setupLazyLoading();
                 this.attachCardListeners();
             }
 
@@ -329,8 +373,8 @@ class StreamGoApp {
 
     attachCardListeners() {
         console.log('Attaching card listeners...');
-        const cards = document.querySelectorAll('.movie-card');
-        console.log(`Found ${cards.length} movie cards`);
+        const cards = document.querySelectorAll('.meta-item-container');
+        console.log(`Found ${cards.length} meta items`);
         
         // Card click listeners
         cards.forEach((card, index) => {
@@ -354,6 +398,17 @@ class StreamGoApp {
             });
         });
 
+        // Play icon layer listeners
+        document.querySelectorAll('.play-icon-layer').forEach(playIcon => {
+            playIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const mediaId = playIcon.dataset.id;
+                if (mediaId) {
+                    this.showMediaDetail(mediaId);
+                }
+            });
+        });
+
         // Add to library button listeners
         document.querySelectorAll('.add-to-library-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -362,17 +417,6 @@ class StreamGoApp {
                 const item = this.mediaMap[itemId] || this.searchResults.find(i => i.id === itemId);
                 if (item) {
                     this.addToLibrary(item);
-                }
-            });
-        });
-
-        // Play button listeners
-        document.querySelectorAll('.play-btn-overlay').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const mediaId = btn.dataset.id;
-                if (mediaId) {
-                    this.playMedia(mediaId);
                 }
             });
         });
@@ -405,14 +449,6 @@ class StreamGoApp {
 
     renderMediaCard(item, showAddButton) {
         const posterUrl = escapeHtml(item.poster_url || 'https://via.placeholder.com/300x450?text=No+Poster');
-        const year = escapeHtml(String(item.year || 'N/A'));
-        const mediaType = typeof item.media_type === 'string' ? escapeHtml(item.media_type) : 
-                         (item.media_type?.Movie ? 'Movie' : 
-                          item.media_type?.TvShow ? 'TV Show' : 'Unknown');
-        const rating = item.rating ? escapeHtml(item.rating.toFixed(1)) : 'N/A';
-        const description = item.description || '';
-        const truncatedDesc = description.length > 150 ? description.substring(0, 150) + '...' : description;
-        const escapedDesc = escapeHtml(truncatedDesc);
         const escapedTitle = escapeHtml(item.title);
         const escapedId = escapeHtml(item.id);
         
@@ -421,21 +457,29 @@ class StreamGoApp {
         this.mediaMap[item.id] = item;
 
         return `
-            <div class="movie-card" data-media-id="${escapedId}">
-                <div class="movie-poster">
-                    <img src="${posterUrl}" alt="${escapedTitle}" onerror="this.src='https://via.placeholder.com/300x450?text=No+Poster'">
-                    <div class="movie-overlay">
-                        ${showAddButton ? `<button class="add-to-library-btn" data-id="${escapedId}">Add to Library</button>` : `<button class="play-btn-overlay" data-id="${escapedId}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Play</button>`}
+            <div class="meta-item-container poster-shape-poster" data-media-id="${escapedId}">
+                <div class="poster-container">
+                    <div class="poster-image-layer">
+                        <img 
+                          data-src="${posterUrl}"
+                          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect fill='%232a2a2a' width='300' height='450'/%3E%3C/svg%3E"
+                          alt="${escapedTitle}"
+                          class="poster-image lazy-img"
+                        >
                     </div>
+                    <div class="play-icon-layer" data-id="${escapedId}">
+                        <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <div class="play-icon-outer"></div>
+                        <div class="play-icon-background"></div>
+                    </div>
+                    ${showAddButton ? `
+                    <button class="add-to-library-btn" data-id="${escapedId}" style="position: absolute; bottom: 1rem; right: 1rem; z-index: 2; padding: 0.5rem 1rem; background: var(--primary-color); border: none; border-radius: var(--border-radius); color: white; cursor: pointer; font-size: 0.9rem;">+</button>
+                    ` : ''}
                 </div>
-                <div class="movie-info">
-                    <h4 class="movie-title">${escapedTitle}</h4>
-                    <div class="movie-meta">
-                        <span class="movie-year">${year}</span>
-                        <span class="movie-type">${mediaType}</span>
-                        <span class="movie-rating">⭐ ${rating}</span>
-                    </div>
-                    ${escapedDesc ? `<p class="movie-description">${escapedDesc}</p>` : ''}
+                <div class="title-bar-container">
+                    <div class="title-label">${escapedTitle}</div>
                 </div>
             </div>
         `;
@@ -663,13 +707,23 @@ class StreamGoApp {
         
         // Hero section
         document.getElementById('detail-hero').innerHTML = `
-            <img src="${backdropUrl}" alt="${escapedTitle}" class="detail-backdrop" onerror="this.src='https://via.placeholder.com/1200x500?text=No+Backdrop'">
+            <img 
+              data-src="${backdropUrl}"
+              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 500'%3E%3Crect fill='%232a2a2a' width='1200' height='500'/%3E%3C/svg%3E"
+              alt="${escapedTitle}"
+              class="detail-backdrop lazy-img"
+            >
         `;
         
         // Content section
         document.getElementById('detail-content').innerHTML = `
             <div>
-                <img src="${posterUrl}" alt="${escapedTitle}" class="detail-poster" onerror="this.src='https://via.placeholder.com/300x450?text=No+Poster'">
+                <img 
+                  data-src="${posterUrl}"
+                  src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect fill='%232a2a2a' width='300' height='450'/%3E%3C/svg%3E"
+                  alt="${escapedTitle}"
+                  class="detail-poster lazy-img"
+                >
             </div>
             <div class="detail-info">
                 <h1>${escapedTitle}</h1>
@@ -703,6 +757,9 @@ class StreamGoApp {
                 </div>
             </div>
         `;
+        
+        // Initialize lazy loading for detail images
+        setTimeout(() => setupLazyLoading('#detail-hero img[data-src], #detail-content img[data-src]'), 0);
     }
 
     async playMedia(mediaId) {
@@ -798,6 +855,8 @@ class StreamGoApp {
 }
 
 // Initialize app when DOM is loaded
+let app;
 document.addEventListener('DOMContentLoaded', () => {
-    new StreamGoApp();
+    app = new StreamGoApp();
+    window.app = app;
 });

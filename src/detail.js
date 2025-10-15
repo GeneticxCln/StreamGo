@@ -1,14 +1,53 @@
+// Lazy loading utility
+const setupLazyLoading = () => {
+  const images = document.querySelectorAll('img[data-src]');
+  
+  if (!('IntersectionObserver' in window)) {
+    images.forEach(img => {
+      if (img.dataset.src) img.src = img.dataset.src;
+    });
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const img = entry.target;
+        const tempImg = new Image();
+        tempImg.onload = () => {
+          img.src = img.dataset.src;
+          img.classList.add('lazy-loaded');
+          observer.unobserve(img);
+        };
+        tempImg.onerror = () => {
+          img.src = 'https://via.placeholder.com/500x750.png?text=Error';
+          observer.unobserve(img);
+        };
+        tempImg.src = img.dataset.src;
+      }
+    });
+  }, { rootMargin: '50px' });
+
+  images.forEach(img => observer.observe(img));
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   const mediaItem = JSON.parse(sessionStorage.getItem('selectedMedia'));
   if (mediaItem) {
+    const posterImg = document.querySelector('.detail-poster img');
     if (mediaItem.poster_url) {
-      document.querySelector('.detail-poster img').src = mediaItem.poster_url;
+      posterImg.dataset.src = mediaItem.poster_url;
+      posterImg.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 300 450\'%3E%3Crect fill=\'%232a2a2a\' width=\'300\' height=\'450\'/%3E%3C/svg%3E';
     } else {
-      document.querySelector('.detail-poster img').src = 'https://via.placeholder.com/500x750.png?text=No+Image';
+      posterImg.dataset.src = 'https://via.placeholder.com/500x750.png?text=No+Image';
+      posterImg.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 300 450\'%3E%3Crect fill=\'%232a2a2a\' width=\'300\' height=\'450\'/%3E%3C/svg%3E';
     }
-    document.querySelector('.detail-poster img').alt = mediaItem.title;
+    posterImg.alt = mediaItem.title;
     document.querySelector('.detail-title').textContent = mediaItem.title;
     document.querySelector('.detail-description').textContent = mediaItem.description;
+    
+    // Initialize lazy loading
+    setupLazyLoading();
 
     document.getElementById('play-button').addEventListener('click', () => {
       if (typeof window.__TAURI__ !== 'undefined') {

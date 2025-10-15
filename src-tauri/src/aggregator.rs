@@ -4,8 +4,10 @@
  * Queries multiple addons in parallel and merges results
  */
 use crate::addon_protocol::{AddonClient, MetaPreview};
+use crate::cache::{ttl, CacheManager};
 use crate::models::Addon;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
@@ -32,6 +34,7 @@ pub struct SourceHealth {
 /// Content aggregator for querying multiple addons
 pub struct ContentAggregator {
     timeout_duration: Duration,
+    cache: Option<Arc<Mutex<CacheManager>>>,
 }
 
 impl ContentAggregator {
@@ -39,6 +42,15 @@ impl ContentAggregator {
     pub fn new() -> Self {
         Self {
             timeout_duration: Duration::from_secs(3),
+            cache: None,
+        }
+    }
+
+    /// Create aggregator with cache
+    pub fn with_cache(cache: Arc<Mutex<CacheManager>>) -> Self {
+        Self {
+            timeout_duration: Duration::from_secs(3),
+            cache: Some(cache),
         }
     }
 
@@ -89,6 +101,7 @@ impl ContentAggregator {
             let catalog_id = catalog_id.to_string();
             let timeout_duration = self.timeout_duration;
             let extra_clone = extra.clone();
+            let cache_clone = self.cache.clone();
 
             let task = tokio::spawn(async move {
                 Self::query_single_addon(
@@ -97,6 +110,7 @@ impl ContentAggregator {
                     &catalog_id,
                     &extra_clone,
                     timeout_duration,
+                    &cache_clone,
                 )
                 .await
             });
@@ -104,19 +118,29 @@ impl ContentAggregator {
             tasks.push((addon.id.clone(), addon.name.clone(), task));
         }
 
-        // Collect results
+        // Collect results with deduplication tracking
         let mut all_items = Vec::new();
         let mut sources = Vec::new();
         let mut seen_ids = HashMap::new();
+        let mut duplicate_count = 0;
 
         for (addon_id, addon_name, task) in tasks {
             match task.await {
                 Ok((items, health)) => {
-                    // Deduplicate by ID (keep first occurrence)
+                    let original_count = items.len();
+
+                    // Deduplicate by ID (keep first occurrence from highest priority addon)
                     let unique_items: Vec<_> = items
                         .into_iter()
                         .filter(|item| {
                             if seen_ids.contains_key(&item.id) {
+                                duplicate_count += 1;
+                                tracing::trace!(
+                                    item_id = %item.id,
+                                    addon_id = %addon_id,
+                                    original_source = %seen_ids.get(&item.id).unwrap(),
+                                    "Skipping duplicate catalog item"
+                                );
                                 false
                             } else {
                                 seen_ids.insert(item.id.clone(), addon_id.clone());
@@ -124,6 +148,17 @@ impl ContentAggregator {
                             }
                         })
                         .collect();
+
+                    let unique_count = unique_items.len();
+                    if original_count > unique_count {
+                        tracing::debug!(
+                            addon_id = %addon_id,
+                            original = original_count,
+                            unique = unique_count,
+                            duplicates = original_count - unique_count,
+                            "Filtered duplicate items"
+                        );
+                    }
 
                     all_items.extend(unique_items);
                     sources.push(health);
@@ -151,10 +186,10 @@ impl ContentAggregator {
 
         tracing::info!(
             total_items = all_items.len(),
-            unique_items = all_items.len(),
             sources = sources.len(),
+            duplicates_filtered = duplicate_count,
             duration_ms = total_time.as_millis(),
-            "Aggregation complete"
+            "Catalog aggregation complete"
         );
 
         AggregationResult {
@@ -171,13 +206,49 @@ impl ContentAggregator {
         catalog_id: &str,
         extra: &Option<HashMap<String, String>>,
         timeout_duration: Duration,
+        cache: &Option<Arc<Mutex<CacheManager>>>,
     ) -> (Vec<MetaPreview>, SourceHealth) {
         let start = Instant::now();
+
+        // Generate cache key
+        let cache_key = format!(
+            "addon:catalog:{}:{}:{}:{:?}",
+            addon.id, media_type, catalog_id, extra
+        );
+
+        // Try to get from cache first
+        if let Some(cache_manager) = cache {
+            if let Ok(cache_guard) = cache_manager.lock() {
+                if let Ok(Some(cached_response)) =
+                    cache_guard.get_addon_response::<Vec<MetaPreview>>(&cache_key, &addon.id)
+                {
+                    let elapsed = start.elapsed();
+                    let item_count = cached_response.len();
+                    tracing::debug!(
+                        addon_id = %addon.id,
+                        item_count = item_count,
+                        "Catalog from cache"
+                    );
+                    return (
+                        cached_response,
+                        SourceHealth {
+                            addon_id: addon.id.clone(),
+                            addon_name: addon.name.clone(),
+                            response_time_ms: elapsed.as_millis(),
+                            success: true,
+                            error: None,
+                            item_count,
+                            priority: addon.priority,
+                        },
+                    );
+                }
+            }
+        }
 
         tracing::debug!(
             addon_id = %addon.id,
             addon_name = %addon.name,
-            "Querying addon"
+            "Querying addon (cache miss)"
         );
 
         // Use addon URL directly (manifest is already a struct, not JSON string)
@@ -221,6 +292,18 @@ impl ContentAggregator {
                     duration_ms = elapsed.as_millis(),
                     "Addon query successful"
                 );
+
+                // Store successful response in cache
+                if let Some(cache_manager) = cache {
+                    if let Ok(cache_guard) = cache_manager.lock() {
+                        let _ = cache_guard.set_addon_response(
+                            &cache_key,
+                            &addon.id,
+                            &response.metas,
+                            ttl::ADDON_CATALOG_TTL,
+                        );
+                    }
+                }
 
                 (
                     response.metas,
@@ -315,6 +398,7 @@ impl ContentAggregator {
             let media_type = media_type.to_string();
             let media_id = media_id.to_string();
             let timeout_duration = self.timeout_duration;
+            let cache_clone = self.cache.clone();
 
             let task = tokio::spawn(async move {
                 Self::query_single_addon_streams(
@@ -322,6 +406,7 @@ impl ContentAggregator {
                     &media_type,
                     &media_id,
                     timeout_duration,
+                    &cache_clone,
                 )
                 .await
             });
@@ -329,14 +414,38 @@ impl ContentAggregator {
             tasks.push((addon.id.clone(), addon.name.clone(), task));
         }
 
-        // Collect results
+        // Collect results with stream deduplication
         let mut all_streams = Vec::new();
         let mut sources = Vec::new();
+        let mut seen_urls = HashMap::new();
 
         for (addon_id, addon_name, task) in tasks {
             match task.await {
                 Ok((streams, health)) => {
-                    all_streams.extend(streams);
+                    // Deduplicate streams by URL (keep first occurrence from highest priority addon)
+                    let unique_streams: Vec<_> = streams
+                        .into_iter()
+                        .filter(|stream| {
+                            // Normalize URL for comparison
+                            let normalized_url = stream.url.trim().to_lowercase();
+                            match seen_urls.entry(normalized_url) {
+                                std::collections::hash_map::Entry::Vacant(e) => {
+                                    e.insert(addon_id.clone());
+                                    true
+                                }
+                                std::collections::hash_map::Entry::Occupied(_) => {
+                                    tracing::trace!(
+                                        url = %stream.url,
+                                        addon_id = %addon_id,
+                                        "Skipping duplicate stream"
+                                    );
+                                    false
+                                }
+                            }
+                        })
+                        .collect();
+
+                    all_streams.extend(unique_streams);
                     sources.push(health);
                 }
                 Err(e) => {
@@ -380,8 +489,41 @@ impl ContentAggregator {
         media_type: &str,
         media_id: &str,
         timeout_duration: Duration,
+        cache: &Option<Arc<Mutex<CacheManager>>>,
     ) -> (Vec<crate::addon_protocol::Stream>, SourceHealth) {
         let start = Instant::now();
+
+        // Generate cache key
+        let cache_key = format!("addon:stream:{}:{}:{}", addon.id, media_type, media_id);
+
+        // Try to get from cache first
+        if let Some(cache_manager) = cache {
+            if let Ok(cache_guard) = cache_manager.lock() {
+                if let Ok(Some(cached_streams)) = cache_guard
+                    .get_addon_response::<Vec<crate::addon_protocol::Stream>>(&cache_key, &addon.id)
+                {
+                    let elapsed = start.elapsed();
+                    let stream_count = cached_streams.len();
+                    tracing::debug!(
+                        addon_id = %addon.id,
+                        stream_count = stream_count,
+                        "Streams from cache"
+                    );
+                    return (
+                        cached_streams,
+                        SourceHealth {
+                            addon_id: addon.id.clone(),
+                            addon_name: addon.name.clone(),
+                            response_time_ms: elapsed.as_millis(),
+                            success: true,
+                            error: None,
+                            item_count: stream_count,
+                            priority: addon.priority,
+                        },
+                    );
+                }
+            }
+        }
 
         // Use addon URL directly (manifest is already a struct, not JSON string)
         let base_url = addon.url.clone();
@@ -411,6 +553,19 @@ impl ContentAggregator {
         match result {
             Ok(Ok(response)) => {
                 let stream_count = response.streams.len();
+
+                // Store successful response in cache
+                if let Some(cache_manager) = cache {
+                    if let Ok(cache_guard) = cache_manager.lock() {
+                        let _ = cache_guard.set_addon_response(
+                            &cache_key,
+                            &addon.id,
+                            &response.streams,
+                            ttl::ADDON_STREAM_TTL,
+                        );
+                    }
+                }
+
                 (
                     response.streams,
                     SourceHealth {

@@ -213,3 +213,17 @@ pub struct SearchFilters {
     pub watched: Option<bool>,
     pub sort_by: Option<String>, // "title_asc", "title_desc", "year_asc", "year_desc", "rating_desc", "added_desc"
 }
+
+/// Addon health summary statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddonHealthSummary {
+    pub addon_id: String,
+    pub last_check: i64,
+    pub success_rate: f64,
+    pub avg_response_time_ms: i64,
+    pub total_requests: i64,
+    pub successful_requests: i64,
+    pub failed_requests: i64,
+    pub last_error: Option<String>,
+    pub health_score: f64,
+}

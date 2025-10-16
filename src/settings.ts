@@ -311,6 +311,11 @@ export class SettingsManager {
             await invoke('save_settings', { settings: newSettings });
             this.currentSettings = newSettings;
 
+            // Apply the theme immediately
+            if ((window as any).app && (window as any).app.applyTheme) {
+                (window as any).app.applyTheme(newSettings.theme);
+            }
+
             // Update telemetry based on new setting
             if (newSettings.telemetry_enabled) {
                 telemetry.enable();

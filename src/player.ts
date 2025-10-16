@@ -1,7 +1,11 @@
 // Video Player Module with HLS support
 // HLS.js is lazy-loaded only when needed to reduce initial bundle size
 type HlsType = typeof import('hls.js').default;
+import { DashPlayer } from './dash-player';
+import { detectStreamFormat } from './stream-format-detector';
+import { parseSubtitle, convertSrtToVtt, adjustTimestamps } from './subtitle-parser';
 import { showToast } from './ui-utils';
+
 
 export interface PlayerOptions {
     container: HTMLElement;
@@ -13,15 +17,28 @@ export class VideoPlayer {
     private container: HTMLElement;
     private video: HTMLVideoElement;
     private hls: InstanceType<HlsType> | null = null;
+    private dashPlayer: DashPlayer | null = null;
     private onCloseCallback?: () => void;
     private isPipActive: boolean = false;
     private hlsModule: HlsType | null = null;
+    private localSubtitleBlobs: string[] = [];
+    private subtitleOffset: number = 0; // in seconds
+    private originalSubtitleContent: Map<string, string> = new Map(); // Map<track.src, originalVttContent>
 
     constructor(options: PlayerOptions) {
         this.container = options.container;
         this.video = options.video;
         this.onCloseCallback = options.onClose;
         this.setupKeyboardShortcuts();
+        this.setupSubtitleLoader();
+        this.setupSubtitleSyncControls();
+
+        // Listen for track changes to update the UI
+        this.video.textTracks.addEventListener('addtrack', () => this.setupSubtitleSelector());
+        this.video.textTracks.addEventListener('removetrack', () => this.setupSubtitleSelector());
+
+        // Also update UI when metadata is loaded (for embedded tracks)
+        this.video.addEventListener('loadedmetadata', () => this.setupSubtitleSelector());
     }
 
     /**
@@ -34,32 +51,48 @@ export class VideoPlayer {
             titleEl.textContent = title;
         }
 
-        // Detect if URL is HLS stream
-        if (this.isHlsStream(url)) {
-            this.loadHlsStream(url);
-        } else {
-            this.loadRegularVideo(url);
-        }
+        this.loadStream(url);
 
         this.show();
     }
 
     /**
-     * Check if URL is an HLS stream
+     * Detects stream format and loads the appropriate player.
      */
-    private isHlsStream(url: string): boolean {
-        return url.includes('.m3u8') || url.includes('m3u8');
+    private async loadStream(url: string) {
+        // First, clean up any existing HLS or DASH instances and subtitles
+        this.cleanupPreviousStream();
+
+        const format = detectStreamFormat(url);
+
+        switch (format) {
+            case 'dash':
+                console.log('DASH stream detected. Initializing dash.js...');
+                this.dashPlayer = new DashPlayer(this.video);
+                this.dashPlayer.load(url);
+                // The quality selector for DASH is set up after the manifest is loaded
+                this.video.addEventListener('loadedmetadata', () => this.setupDashQualitySelector(), { once: true });
+                break;
+
+            case 'hls':
+                this.loadHlsStream(url);
+                break;
+
+            case 'direct':
+            default:
+                this.loadRegularVideo(url);
+                break;
+        }
+
+        this.video.play().catch(err => {
+            console.error('Error playing video:', err);
+        });
     }
 
     /**
      * Load HLS stream using hls.js (lazy-loaded)
      */
     private async loadHlsStream(url: string): Promise<void> {
-        // Cleanup existing HLS instance
-        if (this.hls) {
-            this.hls.destroy();
-        }
-
         // Check if HLS is natively supported (Safari)
         if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
             this.video.src = url;
@@ -126,12 +159,6 @@ export class VideoPlayer {
      * Load regular video file (MP4, WebM, etc.)
      */
     private loadRegularVideo(url: string): void {
-        // Cleanup HLS if it was used before
-        if (this.hls) {
-            this.hls.destroy();
-            this.hls = null;
-        }
-
         const source = this.video.querySelector('source') as HTMLSourceElement;
         if (source) {
             source.src = url;
@@ -140,9 +167,6 @@ export class VideoPlayer {
         }
         
         this.video.load();
-        this.video.play().catch(err => {
-            console.error('Error playing video:', err);
-        });
     }
 
     /**
@@ -154,33 +178,187 @@ export class VideoPlayer {
         const levels = this.hls.levels;
         if (levels.length <= 1) return; // No need for selector if only one quality
 
-        // Create quality selector UI (you'll need to add this to your HTML/CSS)
         const qualitySelector = document.getElementById('quality-selector');
-        if (qualitySelector) {
-            qualitySelector.innerHTML = levels.map((level, index) => {
-                const height = level.height || 'Unknown';
-                return `<button data-quality="${index}">${height}p</button>`;
-            }).join('');
+        if (!qualitySelector) return;
 
-            // Add auto option
-            qualitySelector.innerHTML = '<button data-quality="-1" class="active">Auto</button>' + qualitySelector.innerHTML;
+        qualitySelector.innerHTML = ''; // Clear previous options
 
-            // Attach event listeners
-            qualitySelector.querySelectorAll('button').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const target = e.target as HTMLButtonElement;
-                    const quality = parseInt(target.dataset.quality || '-1');
-                    
-                    if (this.hls) {
-                        this.hls.currentLevel = quality;
-                        
-                        // Update active state
-                        qualitySelector.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-                        target.classList.add('active');
-                    }
-                });
+        // Add "Auto" option
+        const autoBtn = this.createQualityButton('Auto', -1, () => {
+            if (this.hls) this.hls.currentLevel = -1;
+        });
+        autoBtn.classList.add('active');
+        qualitySelector.appendChild(autoBtn);
+
+        // Add specific quality levels
+        levels.forEach((level, index) => {
+            const label = `${level.height}p`;
+            const btn = this.createQualityButton(label, index, () => {
+                if (this.hls) this.hls.currentLevel = index;
             });
+            qualitySelector.appendChild(btn);
+        });
+    }
+
+    /**
+     * Sets up the quality selector UI for DASH streams.
+     */
+    private setupDashQualitySelector(): void {
+        if (!this.dashPlayer) return;
+
+        const qualityLevels = this.dashPlayer.getQualityLevels();
+        const qualitySelector = document.getElementById('quality-selector');
+        if (!qualitySelector || qualityLevels.length <= 1) return;
+
+        qualitySelector.innerHTML = ''; // Clear previous options
+
+        // Add "Auto" option
+        const autoBtn = this.createQualityButton('Auto', -1, () => {
+            this.dashPlayer?.setQualityLevel(-1);
+        });
+        autoBtn.classList.add('active');
+        qualitySelector.appendChild(autoBtn);
+
+        // Add specific quality levels
+        qualityLevels.forEach((level, index) => {
+            const label = `${level.height}p`;
+            const btn = this.createQualityButton(label, index, () => {
+                this.dashPlayer?.setQualityLevel(index);
+            });
+            qualitySelector.appendChild(btn);
+        });
+    }
+
+    /**
+     * Helper to create a quality selector button.
+     */
+    private createQualityButton(label: string, qualityIndex: number, onClick: () => void): HTMLButtonElement {
+        const btn = document.createElement('button');
+        btn.textContent = label;
+        btn.dataset.quality = String(qualityIndex);
+        btn.addEventListener('click', () => {
+            onClick();
+            // Update active state
+            const qualitySelector = document.getElementById('quality-selector');
+            qualitySelector?.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+        return btn;
+    }
+
+    /**
+     * Sets up the subtitle selector UI based on available tracks.
+     */
+    private setupSubtitleSelector(): void {
+        const subtitleSelector = document.getElementById('subtitle-selector');
+        if (!subtitleSelector) return;
+
+        const tracks = this.getSubtitleTracks();
+        subtitleSelector.innerHTML = ''; // Clear existing options
+
+        // Add "Off" option
+        const offBtn = document.createElement('button');
+        offBtn.textContent = 'Off';
+        offBtn.addEventListener('click', () => {
+            this.disableSubtitles();
+            this.updateActiveSubtitleButton();
+        });
+        subtitleSelector.appendChild(offBtn);
+
+        // Add options for each track
+        tracks.forEach((track, index) => {
+            const trackBtn = document.createElement('button');
+            trackBtn.textContent = track.label || `Track ${index + 1}`;
+            trackBtn.dataset.trackIndex = String(index);
+            trackBtn.addEventListener('click', () => {
+                this.enableSubtitle(index);
+                this.updateActiveSubtitleButton();
+            });
+            subtitleSelector.appendChild(trackBtn);
+        });
+
+        this.updateActiveSubtitleButton();
+    }
+
+    /**
+     * Updates the visual state of the active subtitle button.
+     */
+    private updateActiveSubtitleButton(): void {
+        const subtitleSelector = document.getElementById('subtitle-selector');
+        if (!subtitleSelector) return;
+
+        const buttons = subtitleSelector.querySelectorAll('button');
+        buttons.forEach(btn => btn.classList.remove('active'));
+
+        const tracks = this.getSubtitleTracks();
+        const activeTrackIndex = tracks.findIndex(t => t.mode === 'showing');
+
+        if (activeTrackIndex === -1) {
+            // "Off" is active
+            const offBtn = subtitleSelector.querySelector('button:not([data-track-index])');
+            offBtn?.classList.add('active');
+        } else {
+            // A specific track is active
+            const activeBtn = subtitleSelector.querySelector(`button[data-track-index="${activeTrackIndex}"]`);
+            activeBtn?.classList.add('active');
         }
+    }
+
+    /**
+     * Sets up the event listener for the local subtitle loading button.
+     */
+    private setupSubtitleLoader(): void {
+        const loadSubtitleBtn = document.getElementById('load-subtitle-btn');
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.vtt,.srt';
+
+        fileInput.addEventListener('change', async (event) => {
+            const file = (event.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+
+            try {
+                const content = await file.text();
+                let vttContent = content;
+
+                if (file.name.endsWith('.srt')) {
+                    vttContent = convertSrtToVtt(content);
+                }
+
+                const trackLabel = file.name.replace(/\.(srt|vtt)$/, '');
+                this.addLocalSubtitle(vttContent, trackLabel);
+
+                showToast(`Loaded subtitle: ${file.name}`, 'success');
+            } catch (error) {
+                console.error('Error loading subtitle file:', error);
+                showToast('Failed to load or parse subtitle file.', 'error');
+            }
+        });
+
+        loadSubtitleBtn?.addEventListener('click', () => {
+            fileInput.click();
+        });
+    }
+
+    /**
+     * Sets up the subtitle synchronization controls.
+     */
+    private setupSubtitleSyncControls(): void {
+        const increaseBtn = document.getElementById('subtitle-sync-increase');
+        const decreaseBtn = document.getElementById('subtitle-sync-decrease');
+        const offsetDisplay = document.getElementById('subtitle-sync-offset');
+
+        const updateSync = (amount: number) => {
+            this.subtitleOffset += amount;
+            if (offsetDisplay) {
+                offsetDisplay.textContent = `${this.subtitleOffset.toFixed(1)}s`;
+            }
+            this.applySubtitleOffset();
+            showToast(`Subtitle offset: ${this.subtitleOffset.toFixed(1)}s`, 'info');
+        }
+
+        increaseBtn?.addEventListener('click', () => updateSync(0.1));
+        decreaseBtn?.addEventListener('click', () => updateSync(-0.1));
     }
 
     /**
@@ -301,12 +479,25 @@ export class VideoPlayer {
      * Cleanup and destroy player
      */
     destroy(): void {
+        this.cleanupPreviousStream();
+        this.video.pause();
+        this.video.src = '';
+    }
+
+    /**
+     * Cleans up resources from the previous stream (HLS, DASH, subtitles).
+     */
+    private cleanupPreviousStream(): void {
+        this.cleanupLocalSubtitles();
         if (this.hls) {
             this.hls.destroy();
             this.hls = null;
         }
-        this.video.pause();
-        this.video.src = '';
+        if (this.dashPlayer) {
+            this.dashPlayer.destroy();
+            this.dashPlayer = null;
+        }
+        document.getElementById('quality-selector')!.innerHTML = '';
     }
 
     /**
@@ -319,7 +510,58 @@ export class VideoPlayer {
         track.srclang = language;
         track.src = url;
         
+        // Make it visible by default if it's the first one
+        if (this.video.textTracks.length === 0) {
+            track.default = true;
+        }
+
         this.video.appendChild(track);
+    }
+
+    /**
+     * Adds a subtitle from a local file content.
+     * @param vttContent The subtitle content in VTT format.
+     * @param label The label for the subtitle track.
+     */
+    private addLocalSubtitle(vttContent: string, label: string): void {
+        const vttBlob = new Blob([vttContent], { type: 'text/vtt' });
+        const vttUrl = URL.createObjectURL(vttBlob);
+        this.localSubtitleBlobs.push(vttUrl);
+
+        const track = document.createElement('track');
+        track.kind = 'subtitles';
+        track.label = label;
+        track.srclang = 'en'; // Default language
+        track.src = vttUrl;
+
+        // Store original content for syncing
+        this.originalSubtitleContent.set(vttUrl, vttContent);
+
+        this.video.appendChild(track);
+
+        // Enable the newly added track automatically
+        const newTrackIndex = this.getSubtitleTracks().length - 1;
+        this.enableSubtitle(newTrackIndex);
+    }
+
+    /**
+     * Revokes blob URLs created for local subtitles to prevent memory leaks.
+     */
+    private cleanupLocalSubtitles(): void {
+        this.localSubtitleBlobs.forEach(url => URL.revokeObjectURL(url));
+        this.localSubtitleBlobs = [];
+        this.originalSubtitleContent.clear();
+        this.subtitleOffset = 0;
+        const offsetDisplay = document.getElementById('subtitle-sync-offset');
+        if (offsetDisplay) offsetDisplay.textContent = '0.0s';
+
+        // Also remove track elements from video that were loaded locally
+        const tracks = this.video.querySelectorAll('track');
+        tracks.forEach(track => {
+            if (track.src.startsWith('blob:')) {
+                this.video.removeChild(track);
+            }
+        });
     }
 
     /**
@@ -346,6 +588,35 @@ export class VideoPlayer {
         const tracks = this.video.textTracks;
         for (let i = 0; i < tracks.length; i++) {
             tracks[i].mode = 'hidden';
+        }
+    }
+
+    /**
+     * Applies the current subtitle offset to all local subtitle tracks.
+     */
+    private applySubtitleOffset(): void {
+        const tracks = this.getSubtitleTracks();
+        for (const track of tracks) {
+            if (track.label && track.mode === 'showing' && this.originalSubtitleContent.has(track.src)) {
+                const originalContent = this.originalSubtitleContent.get(track.src);
+                if (!originalContent) continue;
+
+                // Adjust timestamps
+                const adjustedContent = adjustTimestamps(originalContent, this.subtitleOffset);
+
+                // Create a new blob and update the track src
+                const newBlob = new Blob([adjustedContent], { type: 'text/vtt' });
+                const newUrl = URL.createObjectURL(newBlob);
+
+                // Revoke the old URL and update references
+                URL.revokeObjectURL(track.src);
+                const oldUrlIndex = this.localSubtitleBlobs.indexOf(track.src);
+                if (oldUrlIndex > -1) this.localSubtitleBlobs.splice(oldUrlIndex, 1);
+                this.localSubtitleBlobs.push(newUrl);
+                this.originalSubtitleContent.set(newUrl, originalContent); // Keep original content mapped to new URL
+                this.originalSubtitleContent.delete(track.src);
+                track.src = newUrl;
+            }
         }
     }
 

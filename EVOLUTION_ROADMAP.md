@@ -96,34 +96,34 @@ This document outlines the complete plan to evolve StreamGo into a production-gr
 - [x] Test: video playback
 - [x] Add to CI pipeline
 
-## Phase 2: Real Add-on Protocol & Content Aggregation (1-2 months)
+## Phase 2: Real Add-on Protocol & Content Aggregation ✅ COMPLETE
 
-### 2.1 Add-on Protocol 📋
-- [ ] Design HTTP-based addon protocol (Stremio-inspired)
-- [ ] Implement manifest endpoint spec
-- [ ] Implement catalog endpoint spec
-- [ ] Implement stream endpoint spec
-- [ ] Add addon resolver layer in Rust
+### 2.1 Add-on Protocol ✅
+- [x] Design HTTP-based addon protocol (Stremio-inspired)
+- [x] Implement manifest endpoint spec
+- [x] Implement catalog endpoint spec
+- [x] Implement stream endpoint spec
+- [x] Add addon resolver layer in Rust
 
-### 2.2 Content Aggregation 📋
-- [ ] Query multiple enabled addons for catalogs
-- [ ] Merge and deduplicate results
-- [ ] Implement addon health scoring
-- [ ] Add request timeouts and retries
-- [ ] Implement addon priority system
+### 2.2 Content Aggregation ✅
+- [x] Query multiple enabled addons for catalogs
+- [x] Merge and deduplicate results
+- [x] Implement addon health scoring
+- [x] Add request timeouts and retries
+- [x] Implement addon priority system
 
-### 2.3 Caching & Performance 📋
-- [ ] Cache TMDB metadata in SQLite with TTLs
-- [ ] Cache addon responses
-- [ ] Implement image lazy loading
-- [ ] Add list virtualization for large grids
-- [ ] Optimize SQLite queries
+### 2.3 Caching & Performance ✅
+- [x] Cache TMDB metadata in SQLite with TTLs
+- [x] Cache addon responses
+- [x] Implement image lazy loading
+- [x] Add list virtualization for large grids
+- [x] Optimize SQLite queries
 
-### 2.4 Database Migrations 📋
-- [ ] Integrate rusqlite_migration or refinery
-- [ ] Create migration 001: initial schema
-- [ ] Create migration 002: addon tables (if needed)
-- [ ] Add version tracking
+### 2.4 Database Migrations ✅
+- [x] Integrate rusqlite_migration or refinery
+- [x] Create migration 001: initial schema
+- [x] Create migration 002: addon health tables
+- [x] Add version tracking
 
 ### 2.5 Preferences & i18n 📋
 - [ ] Finalize end-to-end preferences coverage
@@ -137,18 +137,21 @@ This document outlines the complete plan to evolve StreamGo into a production-gr
 - [ ] Add "Send Diagnostics" user option
 - [ ] Structured logging with context
 
-## Phase 3: Distribution-Grade Polish & Ecosystem (2-3 months)
+## Phase 3: Distribution-Grade Polish & Ecosystem 🚀 IN PROGRESS (15% Complete)
 
-### 3.1 Packaging & Updates 📋
-- [ ] Expand CI to macOS and Windows
+### 3.1 Packaging & Updates 🔄
+- [x] Expand CI to macOS and Windows
 - [ ] Sign builds for all platforms
-- [ ] Create GitHub Release workflow
-- [ ] Integrate Tauri updater with signatures
+- [x] Create GitHub Release workflow
+- [x] Integrate Tauri updater with signatures
 - [ ] Test update flow
 
-### 3.2 Player Depth 📋
-- [ ] Add DASH support (dash.js)
-- [ ] Local subtitle file loading (.srt, .vtt)
+### 3.2 Player Depth 🔄
+- [x] Add DASH support (dash.js) - dependency added
+- [x] Stream format detection utility created
+- [x] Subtitle parser (SRT/VTT) implemented
+- [ ] Integrate DASH player with existing player
+- [ ] Local subtitle file loading UI
 - [ ] Subtitle styling customization
 - [ ] Episode auto-next for TV shows
 - [ ] Intro/outro skip detection (future)

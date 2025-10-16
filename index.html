@@ -243,8 +243,16 @@
                                         </svg>
                                     </button>
                                     <div id="quality-selector" class="quality-selector"></div>
-                                    <div id="subtitle-selector" class="subtitle-selector">
-                                        <button id="subtitle-toggle-btn">CC</button>
+                                    <div class="subtitle-controls">
+                                        <button id="load-subtitle-btn" title="Load Subtitle File">CC</button>
+                                        <div id="subtitle-selector" class="subtitle-selector">
+                                            <!-- Subtitle track buttons will be dynamically added here -->
+                                        </div>
+                                        <div class="subtitle-sync-controls">
+                                            <button id="subtitle-sync-decrease" title="Decrease Subtitle Delay">-</button>
+                                            <span id="subtitle-sync-offset">0.0s</span>
+                                            <button id="subtitle-sync-increase" title="Increase Subtitle Delay">+</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

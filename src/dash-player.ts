@@ -29,40 +29,67 @@ export class DashPlayer {
      */
     async load(url: string): Promise<void> {
         try {
+            // Validate URL
+            if (!url || typeof url !== 'string') {
+                throw new Error('Invalid DASH URL provided');
+            }
+
             // Lazy load dash.js only when needed
             if (!dashJs) {
                 console.log('Loading dashjs module...');
-                dashJs = await import('dashjs');
+                try {
+                    dashJs = await import('dashjs');
+                } catch (importError) {
+                    console.error('Failed to load dashjs module:', importError);
+                    throw new Error('DASH.js library could not be loaded');
+                }
             }
 
             // Create MediaPlayer instance
+            if (!dashJs?.MediaPlayer) {
+                throw new Error('DASH.js MediaPlayer not available');
+            }
+
             this.player = dashJs.MediaPlayer().create();
 
-            // Configure player settings
-            this.player.updateSettings({
-                streaming: {
-                    abr: {
-                        autoSwitchBitrate: {
-                            video: true,
+            if (!this.player) {
+                throw new Error('Failed to create DASH MediaPlayer instance');
+            }
+
+            // Configure player settings with error handling
+            try {
+                this.player.updateSettings({
+                    streaming: {
+                        abr: {
+                            autoSwitchBitrate: {
+                                video: true,
+                            },
+                        },
+                        buffer: {
+                            fastSwitchEnabled: true,
                         },
                     },
-                    buffer: {
-                        fastSwitchEnabled: true,
-                    },
-                },
-            });
+                });
+            } catch (settingsError) {
+                console.warn('Failed to update DASH player settings:', settingsError);
+            }
 
             // Set up event listeners
             this.setupEventListeners();
 
             // Initialize and attach to video element
-            this.player.initialize(this.video, url, true);
-
-            this.isLoaded = true;
-            console.log('DASH player initialized successfully');
+            try {
+                this.player.initialize(this.video, url, true);
+                this.isLoaded = true;
+                console.log('DASH player initialized successfully');
+            } catch (initError) {
+                console.error('Failed to initialize DASH player:', initError);
+                throw new Error(`DASH player initialization failed: ${initError}`);
+            }
         } catch (error) {
             console.error('Error initializing DASH player:', error);
-            throw error;
+            this.isLoaded = false;
+            throw error instanceof Error ? error : new Error(String(error));
         }
     }
 
@@ -183,12 +210,26 @@ export class DashPlayer {
     destroy(): void {
         if (this.player) {
             try {
-                this.player.reset();
+                // Check if reset method exists before calling it
+                if (typeof this.player.reset === 'function') {
+                    this.player.reset();
+                } else if (typeof this.player.destroy === 'function') {
+                    this.player.destroy();
+                }
                 console.log('DASH player destroyed');
             } catch (error) {
                 console.error('Error destroying DASH player:', error);
+                // Force cleanup even if reset fails
+                try {
+                    if (this.player && typeof this.player.off === 'function') {
+                        this.player.off(); // Remove all event listeners
+                    }
+                } catch (cleanupError) {
+                    console.error('Error during forced cleanup:', cleanupError);
+                }
+            } finally {
+                this.player = null;
             }
-            this.player = null;
         }
         this.qualityLevels = [];
         this.isLoaded = false;

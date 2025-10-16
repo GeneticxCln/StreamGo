@@ -125,6 +125,12 @@ pub struct StreamResponse {
     pub streams: Vec<Stream>,
 }
 
+/// Subtitles response - list of available subtitles
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubtitlesResponse {
+    pub subtitles: Vec<Subtitle>,
+}
+
 /// Stream - a playable media source
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(non_snake_case)] // Stremio protocol uses camelCase
@@ -450,6 +456,57 @@ impl AddonClient {
         );
 
         Ok(streams)
+    }
+
+    /// Fetch subtitles for a media item
+    pub async fn get_subtitles(
+        &self,
+        media_type: &str,
+        media_id: &str,
+    ) -> Result<SubtitlesResponse, AddonError> {
+        let url = format!("{}/subtitles/{}/{}.json", self.base_url, media_type, media_id);
+
+        tracing::info!(url = %url, "Fetching subtitles");
+
+        let client = self.client.clone();
+        let url_clone = url.clone();
+
+        let response = Self::retry_with_backoff(|| async {
+            client
+                .get(url_clone.clone())
+                .send()
+                .await
+                .map_err(|e| AddonError::HttpError(e.to_string()))
+        })
+        .await?;
+
+        if !response.status().is_success() {
+            return Err(AddonError::HttpError(format!(
+                "HTTP {}: {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            )));
+        }
+
+        if let Some(length) = response.content_length() {
+            if length > MAX_RESPONSE_SIZE {
+                return Err(AddonError::ValidationError(format!(
+                    "Response size {} exceeds maximum {}",
+                    length, MAX_RESPONSE_SIZE
+                )));
+            }
+        }
+
+        let mut subs = response
+            .json::<SubtitlesResponse>()
+            .await
+            .map_err(|e| AddonError::ParseError(e.to_string()))?;
+
+        // Validate subtitle URLs
+        subs.subtitles
+            .retain(|s| Self::validate_stream_url(&s.url));
+
+        Ok(subs)
     }
 
     /// Validate manifest with comprehensive checks

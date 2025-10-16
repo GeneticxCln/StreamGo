@@ -337,7 +337,7 @@ export class AddonStore {
         try {
             showToast(`Installing ${addon.name}...`, 'info');
 
-            await invoke('install_addon', { addonUrl: addon.url });
+            await invoke('install_addon', { addon_url: addon.url });
 
             this.installedAddonIds.add(addon.id);
             showToast(`${addon.name} installed successfully!`, 'success');

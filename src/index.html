@@ -7,6 +7,13 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <div id="update-notification" class="update-notification" style="display: none;">
+        <p>A new version of StreamGo is available! <span id="update-version"></span></p>
+        <div class="update-actions">
+            <button id="update-now-btn" class="btn btn-primary">Install Now</button>
+            <button id="update-dismiss-btn" class="btn btn-secondary">Later</button>
+        </div>
+    </div>
     <div class="app-container">
         <nav class="sidebar">
             <div class="sidebar-header">
@@ -29,6 +36,13 @@
                     <a href="#search">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                        </svg>
+                    </a>
+                </li>
+                <li class="nav-item" data-section="discover" title="Discover">
+                    <a href="#discover">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2zm3.94 6.06-2.2 5.15a1 1 0 0 1-.53.53l-5.15 2.2a.25.25 0 0 1-.33-.33l2.2-5.15a1 1 0 0 1 .53-.53l5.15-2.2a.25.25 0 0 1 .33.33z"/>
                         </svg>
                     </a>
                 </li>
@@ -157,6 +171,32 @@
                     </div>
                     <div id="search-loading" class="loading-indicator" style="display: none;">
                         <p>Searching...</p>
+                    </div>
+                </section>
+
+                <!-- Discover Section -->
+                <section id="discover-section" class="content-section">
+                    <div class="search-header">
+                        <h2>Discover</h2>
+                        <div class="search-bar-large" style="gap: 12px;">
+                            <select id="discover-type-select" class="setting-select" style="max-width: 200px;">
+                                <option value="movie">Movies</option>
+                                <option value="series">Series</option>
+                            </select>
+                            <select id="discover-catalog-select" class="setting-select" style="flex: 1; max-width: 400px;">
+                                <option value="">Select a catalog...</option>
+                            </select>
+                            <button id="discover-refresh-btn" class="btn btn-primary">Browse</button>
+                        </div>
+                    </div>
+                    <div id="discover-grid" class="movie-grid">
+                        <p class="empty-message">Select a catalog to browse content</p>
+                    </div>
+                    <div id="discover-loading" class="loading-indicator" style="display: none;">
+                        <p>Loading...</p>
+                    </div>
+                    <div style="display:flex; justify-content:center; margin-top: 16px;">
+                        <button id="discover-load-more" class="btn btn-secondary" style="display: none;">Load More</button>
                     </div>
                 </section>
 
@@ -292,6 +332,10 @@
                                     <option value="auto">Auto (System)</option>
                                     <option value="dark">Dark</option>
                                     <option value="light">Light</option>
+                                    <option value="dracula">Dracula</option>
+                                    <option value="solarized-light">Solarized Light</option>
+                                    <option value="solarized-dark">Solarized Dark</option>
+                                    <option value="nord">Nord</option>
                                 </select>
                                 <span class="setting-description">Choose your preferred color theme</span>
                             </div>

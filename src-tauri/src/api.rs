@@ -2,6 +2,7 @@ use crate::cache::{ttl, CacheManager};
 use crate::models::*;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
+use crate::addon_protocol::{AddonClient, ResourceType, AddonMediaType};
 use std::sync::{Arc, Mutex};
 
 // Mock TMDB API integration (in a real app, you'd use actual API keys)
@@ -181,56 +182,84 @@ pub async fn get_streaming_url(content_id: &str) -> Result<String> {
 pub async fn install_addon(addon_url: &str) -> Result<Addon> {
     log::info!("Installing addon from: {}", addon_url);
 
-    // Validate URL format
-    let parsed_url = url::Url::parse(addon_url).map_err(|e| anyhow!("Invalid addon URL: {}", e))?;
+    // Normalize to base URL (strip trailing /manifest.json if provided)
+    let mut base = addon_url.trim_end_matches('/').to_string();
+    if base.ends_with("/manifest.json") {
+        base.truncate(base.len() - "/manifest.json".len());
+    }
 
+    // Validate base URL format and scheme
+    let parsed_url = url::Url::parse(&base).map_err(|e| anyhow!("Invalid addon URL: {}", e))?;
     if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
         return Err(anyhow!("Addon URL must use http or https protocol"));
     }
 
-    // Download addon manifest with timeout
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
-
-    let manifest_url = if addon_url.ends_with("/manifest.json") {
-        addon_url.to_string()
-    } else {
-        format!("{}/manifest.json", addon_url.trim_end_matches('/'))
-    };
-
-    log::info!("Fetching manifest from: {}", manifest_url);
-
-    let response = client
-        .get(&manifest_url)
-        .send()
+    // Use protocol client for strict validation and size limits
+    let client = AddonClient::new(base.clone())
+        .map_err(|e| anyhow!("Failed to create addon client: {}", e))?;
+    let p_manifest = client
+        .get_manifest()
         .await
         .map_err(|e| anyhow!("Failed to fetch addon manifest: {}", e))?;
 
-    if !response.status().is_success() {
-        return Err(anyhow!(
-            "Failed to fetch manifest: HTTP {}",
-            response.status()
-        ));
-    }
+    // Map protocol manifest to storage model
+    let resources: Vec<String> = p_manifest
+        .resources
+        .iter()
+        .map(|r| match r {
+            ResourceType::Catalog => "catalog".to_string(),
+            ResourceType::Stream => "stream".to_string(),
+            ResourceType::Meta => "meta".to_string(),
+            ResourceType::Subtitles => "subtitles".to_string(),
+        })
+        .collect();
 
-    let manifest: AddonManifest = response
-        .json()
-        .await
-        .map_err(|e| anyhow!("Invalid manifest JSON: {}", e))?;
+    let types: Vec<String> = p_manifest
+        .types
+        .iter()
+        .map(|t| match t {
+            AddonMediaType::Movie => "movie".to_string(),
+            AddonMediaType::Series => "series".to_string(),
+            AddonMediaType::Channel => "channel".to_string(),
+            AddonMediaType::TV => "tv".to_string(),
+        })
+        .collect();
 
-    // Validate manifest structure
-    validate_addon_manifest(&manifest)?;
+    let catalogs: Vec<Catalog> = p_manifest
+        .catalogs
+        .iter()
+        .map(|c| Catalog {
+            catalog_type: match c.media_type {
+                AddonMediaType::Movie => "movie".to_string(),
+                AddonMediaType::Series => "series".to_string(),
+                AddonMediaType::Channel => "channel".to_string(),
+                AddonMediaType::TV => "tv".to_string(),
+            },
+            id: c.id.clone(),
+            name: c.name.clone(),
+            genres: None,
+        })
+        .collect();
 
-    // Determine addon type based on resources
-    let addon_type = if manifest.resources.contains(&"stream".to_string()) {
+    let manifest = AddonManifest {
+        id: p_manifest.id.clone(),
+        name: p_manifest.name.clone(),
+        version: p_manifest.version.clone(),
+        description: p_manifest.description.clone(),
+        resources,
+        types,
+        catalogs,
+    };
+
+    // Determine addon type based on protocol resources
+    let addon_type = if p_manifest.resources.contains(&ResourceType::Stream) {
         AddonType::ContentProvider
-    } else if manifest.resources.contains(&"meta".to_string()) {
+    } else if p_manifest.resources.contains(&ResourceType::Meta) {
         AddonType::MetadataProvider
-    } else if manifest.resources.contains(&"subtitles".to_string()) {
+    } else if p_manifest.resources.contains(&ResourceType::Subtitles) {
         AddonType::Subtitles
     } else {
-        AddonType::ContentProvider // Default
+        AddonType::ContentProvider
     };
 
     let addon = Addon {
@@ -238,12 +267,12 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
         name: manifest.name.clone(),
         version: manifest.version.clone(),
         description: manifest.description.clone(),
-        author: "Community".to_string(), // Could be added to manifest spec
-        url: addon_url.to_string(),
+        author: "Community".to_string(),
+        url: base,
         enabled: true,
         addon_type,
         manifest,
-        priority: 0, // Default priority
+        priority: 0,
     };
 
     log::info!(
@@ -255,24 +284,6 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
     Ok(addon)
 }
 
-fn validate_addon_manifest(manifest: &AddonManifest) -> Result<()> {
-    if manifest.id.is_empty() {
-        return Err(anyhow!("Manifest missing required field: id"));
-    }
-    if manifest.name.is_empty() {
-        return Err(anyhow!("Manifest missing required field: name"));
-    }
-    if manifest.version.is_empty() {
-        return Err(anyhow!("Manifest missing required field: version"));
-    }
-    if manifest.resources.is_empty() {
-        return Err(anyhow!("Manifest must declare at least one resource"));
-    }
-    if manifest.types.is_empty() {
-        return Err(anyhow!("Manifest must declare at least one content type"));
-    }
-    Ok(())
-}
 
 // This function is no longer needed - moved to lib.rs to use DB
 // Keeping stub for backwards compatibility during refactor
@@ -285,7 +296,7 @@ pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
             description: "The Movie Database metadata provider".to_string(),
             author: "StreamGo Team".to_string(),
             url: "built-in".to_string(),
-            enabled: true,
+            enabled: false,
             addon_type: AddonType::MetadataProvider,
             manifest: AddonManifest {
                 id: "tmdb_addon".to_string(),
@@ -305,7 +316,7 @@ pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
             description: "Stream content from YouTube".to_string(),
             author: "StreamGo Team".to_string(),
             url: "built-in".to_string(),
-            enabled: true,
+            enabled: false,
             addon_type: AddonType::ContentProvider,
             manifest: AddonManifest {
                 id: "youtube_addon".to_string(),

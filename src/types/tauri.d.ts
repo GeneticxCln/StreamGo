@@ -98,11 +98,32 @@ export interface AddonManifest {
   catalogs: Catalog[];
 }
 
+export interface Stream {
+  url: string;
+  title?: string;
+  name?: string; // quality label like 1080p
+  description?: string;
+}
+
+export interface Subtitle {
+  id: string;
+  url: string;
+  lang: string;
+}
+
 export interface Catalog {
   catalog_type: string;
   id: string;
   name: string;
   genres?: string[];
+}
+
+export interface CatalogInfo {
+  addon_id: string;
+  addon_name: string;
+  id: string;
+  name: string;
+  media_type: string;
 }
 
 export interface Playlist {
@@ -179,9 +200,13 @@ export interface TauriCommands {
   search_content: { args: { query: string }; return: MediaItem[] };
   search_library_advanced: { args: { filters: SearchFilters }; return: MediaItem[] };
   
-  // Media
+  // Media & Catalogs
   get_media_details: { args: { content_id: string; media_type: MediaType }; return: MediaItem };
-  get_stream_url: { args: { content_id: string }; return: string };
+  get_stream_url: { args: { content_id: string; media_type?: string }; return: string };
+  get_streams: { args: { content_id: string; media_type?: string }; return: Stream[] };
+  get_subtitles: { args: { content_id: string; media_type?: string }; return: Subtitle[] };
+  list_catalogs: { args: { media_type: string }; return: CatalogInfo[] };
+  aggregate_catalogs: { args: { media_type: string; catalog_id: string; extra?: { [key: string]: string } }; return: { items: any[]; sources: any[]; total_time_ms: number } };
   
   // Addons
   get_addons: { args: {}; return: Addon[] };

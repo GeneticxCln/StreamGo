@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+
 /* StreamGo styles - adapted from Stremio Web design system */
 /* Original Stremio design tokens: Copyright (C) 2017-2024 Smart code 203358507 */
 
@@ -25,19 +27,31 @@
     --text-primary: #ffffff;
     --text-secondary: #9ca3af;
     --text-tertiary: #6b7280;
-    --primary-color: var(--stremio-primary-variant);
-    --primary-hover: var(--stremio-primary);
-    --primary-light: var(--stremio-secondary-variant-1);
+    --primary-color: #3B82F6;
+    --primary-hover: #6366F1;
+    --primary-light: #EC4899;
     --accent-color: var(--stremio-accent-red);
     --success-color: var(--stremio-accent-green);
     --warning-color: var(--stremio-accent-yellow);
-    --border-color: rgba(255, 255, 255, 0.06);
-    --border-radius: 8px;
-    --border-radius-lg: 12px;
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-radius: 12px;
+    --border-radius-lg: 16px;
     --transition-speed: 0.2s;
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.6);
     --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.8);
+
+    /* UI surface variables */
+    --surface-color: var(--background-secondary);
+    --hover-color: var(--background-tertiary);
+    --background-color: var(--background-secondary);
+
+    /* Typography */
+    --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-family-headings: 'Poppins', sans-serif;
+    --font-size-base: 16px;
+    --line-height-base: 1.6;
+
 
     /* Stremio breakpoints */
     --breakpoint-minimum: 640px;
@@ -166,13 +180,19 @@
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-base);
     background: var(--background-primary);
     color: var(--text-primary);
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-family-headings);
 }
 
 /* Force visibility for debugging */
@@ -186,9 +206,9 @@ body {
 }
 
 .sidebar {
-    width: 80px;
+    width: 90px;
     background: var(--sidebar-bg);
-    padding: 20px 0;
+    padding: 30px 0;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -400,7 +420,7 @@ body {
 
 .main-content {
     flex: 1;
-    margin-left: 80px;
+    margin-left: 90px;
     padding: 0;
     overflow-y: auto;
     background: var(--background-primary);
@@ -408,22 +428,22 @@ body {
 }
 
 .content-area {
-    padding: 32px 48px;
+    padding: 40px 60px;
 }
 
 .main-header {
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 32px 48px 24px;
-    margin-bottom: 24px;
+    padding: 40px 60px 30px;
+    margin-bottom: 30px;
     background: var(--background-primary);
     border-bottom: 1px solid var(--border-color);
 }
 
 .search-bar {
     flex: 1;
-    max-width: 600px;
+    max-width: 700px;
     position: relative;
     display: flex;
     align-items: center;
@@ -431,7 +451,7 @@ body {
 
 .search-bar .search-icon {
     position: absolute;
-    left: 20px;
+    left: 25px;
     top: 50%;
     transform: translateY(-50%);
     color: var(--text-secondary);
@@ -441,12 +461,12 @@ body {
 
 .search-bar input {
     width: 100%;
-    padding: 14px 20px 14px 56px;
+    padding: 18px 25px 18px 60px;
     border-radius: 50px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    background: var(--background-secondary);
     color: var(--text-primary);
-    font-size: 15px;
+    font-size: 16px;
     transition: all var(--transition-speed) ease;
 }
 
@@ -465,19 +485,19 @@ body {
 }
 
 .hero-section {
-    height: 420px;
-    background: linear-gradient(135deg, rgba(123, 104, 238, 0.2) 0%, rgba(67, 56, 202, 0.15) 50%, rgba(79, 70, 229, 0.1) 100%);
+    height: 450px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(99, 102, 241, 0.15) 50%, rgba(236, 72, 153, 0.1) 100%);
     background-size: cover;
     background-position: center;
-    border-radius: 16px;
+    border-radius: var(--border-radius-lg);
     display: flex;
     align-items: flex-end;
-    padding: 48px;
+    padding: 60px;
     position: relative;
     overflow: hidden;
-    border: 1px solid rgba(123, 104, 238, 0.2);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    margin-bottom: 48px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    margin-bottom: 60px;
 }
 
 .hero-section::before {
@@ -510,19 +530,19 @@ body {
 }
 
 .hero-title {
-    font-size: 48px;
+    font-size: 52px;
     font-weight: 800;
-    margin-bottom: 20px;
+    margin-bottom: 25px;
     text-shadow: 0 4px 24px rgba(0, 0, 0, 0.9);
     letter-spacing: -0.02em;
     line-height: 1.1;
 }
 
 .hero-description {
-    font-size: 18px;
+    font-size: 20px;
     color: rgba(255, 255, 255, 0.85);
-    margin-bottom: 32px;
-    max-width: 600px;
+    margin-bottom: 40px;
+    max-width: 700px;
     line-height: 1.7;
     text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
 }
@@ -568,15 +588,15 @@ body {
 
 /* Horizontal scrolling rows like Stremio */
 .content-row {
-    margin-bottom: 48px;
+    margin-bottom: 60px;
 }
 
 .content-row-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    padding: 0 40px;
+    margin-bottom: 25px;
+    padding: 0 60px;
 }
 
 .content-row-title {
@@ -601,10 +621,10 @@ body {
 
 .content-row-items {
     display: flex;
-    gap: 20px;
+    gap: 25px;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0 40px 20px;
+    padding: 0 60px 25px;
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
 }
@@ -649,8 +669,8 @@ body {
 
 .movie-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 28px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 35px;
     animation: fadeIn 0.5s ease-in;
 }
 
@@ -932,8 +952,85 @@ html {
 }
 
 /* ===============================================
-   LIGHT THEME
+   NEW THEMES
    =============================================== */
+
+/* Dracula Theme */
+[data-theme="dracula"] {
+    --background-primary: #282a36;
+    --background-secondary: #44475a;
+    --background-tertiary: #6272a4;
+    --card-bg: #44475a;
+    --sidebar-bg: #282a36;
+    --text-primary: #f8f8f2;
+    --text-secondary: #bd93f9;
+    --text-tertiary: #6272a4;
+    --primary-color: #bd93f9;
+    --primary-hover: #ff79c6;
+    --primary-light: #ffb86c;
+    --accent-color: #ff5555;
+    --success-color: #50fa7b;
+    --warning-color: #f1fa8c;
+    --border-color: rgba(248, 248, 242, 0.1);
+}
+
+/* Solarized Light Theme */
+[data-theme="solarized-light"] {
+    --background-primary: #fdf6e3;
+    --background-secondary: #eee8d5;
+    --background-tertiary: #93a1a1;
+    --card-bg: #eee8d5;
+    --sidebar-bg: #fdf6e3;
+    --text-primary: #657b83;
+    --text-secondary: #586e75;
+    --text-tertiary: #93a1a1;
+    --primary-color: #268bd2;
+    --primary-hover: #2aa198;
+    --primary-light: #b58900;
+    --accent-color: #dc322f;
+    --success-color: #859900;
+    --warning-color: #cb4b16;
+    --border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Solarized Dark Theme */
+[data-theme="solarized-dark"] {
+    --background-primary: #002b36;
+    --background-secondary: #073642;
+    --background-tertiary: #586e75;
+    --card-bg: #073642;
+    --sidebar-bg: #002b36;
+    --text-primary: #839496;
+    --text-secondary: #93a1a1;
+    --text-tertiary: #586e75;
+    --primary-color: #268bd2;
+    --primary-hover: #2aa198;
+    --primary-light: #b58900;
+    --accent-color: #dc322f;
+    --success-color: #859900;
+    --warning-color: #cb4b16;
+    --border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Nord Theme */
+[data-theme="nord"] {
+    --background-primary: #2E3440;
+    --background-secondary: #3B4252;
+    --background-tertiary: #4C566A;
+    --card-bg: #3B4252;
+    --sidebar-bg: #2E3440;
+    --text-primary: #D8DEE9;
+    --text-secondary: #E5E9F0;
+    --text-tertiary: #4C566A;
+    --primary-color: #81A1C1;
+    --primary-hover: #88C0D0;
+    --primary-light: #5E81AC;
+    --accent-color: #BF616A;
+    --success-color: #A3BE8C;
+    --warning-color: #EBCB8B;
+    --border-color: rgba(216, 222, 233, 0.1);
+}
+
 [data-theme="light"] {
     --background-primary: #f5f7fa;
     --background-secondary: #ffffff;
@@ -1911,6 +2008,48 @@ img.lazy-error {
     font-weight: 600;
     color: var(--text-primary);
 }
+
+/* Update Notification Bar */
+.update-notification {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background-color: var(--primary-color);
+    color: white;
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 1001;
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-100%);
+    transition: transform 0.3s ease-in-out;
+}
+
+.update-notification.show {
+    transform: translateY(0);
+}
+
+.update-notification p {
+    margin: 0;
+    font-weight: 500;
+}
+
+.update-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.update-actions .btn-secondary {
+    background-color: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.update-actions .btn-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
 
 /* Settings Section */
 .settings-header {

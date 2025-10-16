@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 /// Migration trait for implementing version upgrades
 pub trait Migration {
@@ -255,6 +255,55 @@ impl Migration001InitialSchema {
     }
 }
 
+/// Migration v3: Ensure addons table has installed_at and priority columns for legacy DBs
+struct Migration003AddonColumns;
+
+impl Migration for Migration003AddonColumns {
+    fn version(&self) -> u32 { 3 }
+    fn description(&self) -> &str { "Ensure addons table has installed_at and priority columns (legacy upgrades)" }
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Inspect existing columns
+        let mut stmt = conn.prepare("PRAGMA table_info(addons)")?;
+        let mut rows = stmt.query([])?;
+        let mut has_installed_at = false;
+        let mut has_priority = false;
+        while let Some(row) = rows.next()? {
+            // PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+            let col_name: String = row.get(1)?;
+            if col_name == "installed_at" { has_installed_at = true; }
+            if col_name == "priority" { has_priority = true; }
+        }
+        if !has_installed_at {
+            conn.execute(
+                "ALTER TABLE addons ADD COLUMN installed_at TEXT",
+                [],
+            )?;
+            // Backfill with current timestamp for existing rows
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE addons SET installed_at = ?1 WHERE installed_at IS NULL",
+                [now],
+            )?;
+        }
+        if !has_priority {
+            conn.execute(
+                "ALTER TABLE addons ADD COLUMN priority INTEGER DEFAULT 0",
+                [],
+            )?;
+            conn.execute(
+                "UPDATE addons SET priority = 0 WHERE priority IS NULL",
+                [],
+            )?;
+        }
+        // Ensure index exists for priority
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_addons_priority ON addons(priority DESC, enabled)",
+            [],
+        )?;
+        Ok(())
+    }
+}
+
 /// Migration v2: Add addon health tracking
 struct Migration002AddonHealth;
 
@@ -326,6 +375,7 @@ impl MigrationRunner {
         let migrations: Vec<Box<dyn Migration>> = vec![
             Box::new(Migration001InitialSchema),
             Box::new(Migration002AddonHealth),
+            Box::new(Migration003AddonColumns),
         ];
         Self { migrations }
     }

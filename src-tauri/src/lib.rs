@@ -22,10 +22,21 @@ pub use migrations::{MigrationRunner, CURRENT_SCHEMA_VERSION};
 pub use models::*;
 pub use player::{ExternalPlayer, PlayerManager, SubtitleCue, SubtitleManager};
 
+use serde::Serialize;
+
 // Application state
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub cache: Arc<Mutex<CacheManager>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CatalogInfo {
+    addon_id: String,
+    addon_name: String,
+    id: String,
+    name: String,
+    media_type: String,
 }
 
 // Tauri commands - these are exposed to the frontend
@@ -76,6 +87,54 @@ async fn search_library_advanced(
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn list_catalogs(
+    media_type: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<CatalogInfo>, String> {
+    let db = state.inner().db.clone();
+
+    // Load addons (initialize built-ins if DB is empty)
+    let addons = tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let mut addons = db.get_addons().map_err(|e| e.to_string())?;
+        if addons.is_empty() {
+            let builtin = tokio::runtime::Handle::current()
+                .block_on(api::get_builtin_addons())
+                .map_err(|e| e.to_string())?;
+            for addon in &builtin {
+                db.save_addon(addon).map_err(|e| e.to_string())?;
+            }
+            addons = builtin;
+        }
+        Ok::<Vec<Addon>, String>(addons)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))??;
+
+    // Filter enabled and collect catalogs matching media_type
+    let mt_lower = media_type.to_lowercase();
+    let mut result: Vec<CatalogInfo> = Vec::new();
+    for addon in addons.into_iter().filter(|a| a.enabled) {
+        for c in addon.manifest.catalogs.iter() {
+            if c.catalog_type.to_lowercase() == mt_lower {
+                result.push(CatalogInfo {
+                    addon_id: addon.id.clone(),
+                    addon_name: addon.name.clone(),
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    media_type: c.catalog_type.clone(),
+                });
+            }
+        }
+    }
+
+    // Optional: sort by addon priority and then by name
+    // Not strictly necessary; keep natural order for now
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -171,6 +230,7 @@ async fn aggregate_catalogs(
 #[tauri::command]
 async fn get_stream_url(
     content_id: String,
+    media_type: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     // Integrate with addon aggregator; fall back to demo URL on failure
@@ -219,8 +279,9 @@ async fn get_stream_url(
     // 2) Query streams via aggregator with cache (default media_type to 'movie' for backward compatibility)
     let cache = state.inner().cache.clone();
     let aggregator = ContentAggregator::with_cache(cache);
+    let media_type_effective = media_type.unwrap_or_else(|| "movie".to_string());
     let result = aggregator
-        .query_streams(&addons, "movie", &content_id)
+        .query_streams(&addons, &media_type_effective, &content_id)
         .await;
 
     // Record health metrics for each addon
@@ -256,6 +317,151 @@ async fn get_stream_url(
         "No valid streams from aggregator; using fallback URL"
     );
     Ok(FALLBACK_URL.to_string())
+}
+
+#[tauri::command]
+async fn get_streams(
+    content_id: String,
+    media_type: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Stream>, String> {
+    // Load enabled addons (initialize built-ins if needed)
+    let db = state.inner().db.clone();
+    let addons_res = tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let mut addons = db.get_addons().map_err(|e| e.to_string())?;
+        if addons.is_empty() {
+            let builtin = tokio::runtime::Handle::current()
+                .block_on(api::get_builtin_addons())
+                .map_err(|e| e.to_string())?;
+            for addon in &builtin {
+                db.save_addon(addon).map_err(|e| e.to_string())?;
+            }
+            addons = builtin;
+        }
+        let enabled: Vec<Addon> = addons.into_iter().filter(|a| a.enabled).collect();
+        Ok::<Vec<Addon>, String>(enabled)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    let addons = match addons_res {
+        Ok(v) if !v.is_empty() => v,
+        Ok(_) => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
+
+    let cache = state.inner().cache.clone();
+    let aggregator = ContentAggregator::with_cache(cache);
+    let media_type_effective = media_type.unwrap_or_else(|| "movie".to_string());
+    let result = aggregator
+        .query_streams(&addons, &media_type_effective, &content_id)
+        .await;
+
+    // Record health metrics
+    let db_for_health = state.inner().db.clone();
+    let sources_clone = result.sources.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Ok(db) = db_for_health.lock() {
+            for source in sources_clone {
+                let error_msg = source.error.as_deref();
+                let _ = db.record_addon_health(
+                    &source.addon_id,
+                    source.response_time_ms,
+                    source.success,
+                    error_msg,
+                    source.item_count,
+                    "stream",
+                );
+            }
+        }
+    });
+
+    Ok(result.streams)
+}
+
+#[tauri::command]
+async fn get_subtitles(
+    content_id: String,
+    media_type: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Subtitle>, String> {
+    // Load enabled addons
+    let db = state.inner().db.clone();
+    let addons_res = tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let mut addons = db.get_addons().map_err(|e| e.to_string())?;
+        if addons.is_empty() {
+            let builtin = tokio::runtime::Handle::current()
+                .block_on(api::get_builtin_addons())
+                .map_err(|e| e.to_string())?;
+            for addon in &builtin {
+                db.save_addon(addon).map_err(|e| e.to_string())?;
+            }
+            addons = builtin;
+        }
+        let enabled: Vec<Addon> = addons.into_iter().filter(|a| a.enabled).collect();
+        Ok::<Vec<Addon>, String>(enabled)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    let addons = match addons_res {
+        Ok(v) if !v.is_empty() => v,
+        Ok(_) => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
+
+    let media_type_effective = media_type.unwrap_or_else(|| "movie".to_string());
+    let mut subs: Vec<Subtitle> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for addon in addons {
+        let base = addon.url.clone();
+        let start = std::time::Instant::now();
+        let mut success = false;
+        let mut err_msg: Option<String> = None;
+        let mut item_count: usize = 0;
+
+        match AddonClient::new(base) {
+            Ok(client) => match client.get_subtitles(&media_type_effective, &content_id).await {
+                Ok(response) => {
+                    for s in response.subtitles.into_iter() {
+                        if seen.insert(s.url.clone()) {
+                            subs.push(s);
+                            item_count += 1;
+                        }
+                    }
+                    success = item_count > 0;
+                }
+                Err(e) => {
+                    err_msg = Some(e.to_string());
+                }
+            },
+            Err(e) => {
+                err_msg = Some(e.to_string());
+            }
+        }
+
+        let elapsed = start.elapsed().as_millis();
+        let addon_id = addon.id.clone();
+        let db_for_health = state.inner().db.clone();
+        let err_msg_clone = err_msg.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Ok(db) = db_for_health.lock() {
+                let _ = db.record_addon_health(
+                    &addon_id,
+                    elapsed,
+                    success,
+                    err_msg_clone.as_deref(),
+                    item_count,
+                    "subtitles",
+                );
+            }
+        });
+    }
+
+    Ok(subs)
 }
 
 fn select_best_stream(streams: &[crate::addon_protocol::Stream]) -> Option<String> {
@@ -1077,6 +1283,9 @@ pub fn run() {
             search_content,
             search_library_advanced,
             get_stream_url,
+            get_streams,
+            get_subtitles,
+            list_catalogs,
             aggregate_catalogs,
             install_addon,
             get_addons,

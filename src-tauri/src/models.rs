@@ -94,12 +94,30 @@ pub struct UserPreferences {
     pub version: u32,
 
     // Appearance
+    #[serde(default = "default_theme")]
     pub theme: String,
     #[serde(default = "default_language")]
     pub language: String,
 
     // Video Settings
+    #[serde(default = "default_quality")]
     pub quality: String,
+    #[serde(default = "default_quality")]
+    pub default_quality: String,
+    #[serde(default = "default_video_codec")]
+    pub video_codec: String,
+    #[serde(default = "default_max_bitrate")]
+    pub max_bitrate: String,
+    #[serde(default = "default_bool_false")]
+    pub hardware_accel: bool,
+
+    // Audio
+    #[serde(default = "default_audio_codec")]
+    pub audio_codec: String,
+    #[serde(default = "default_audio_channels")]
+    pub audio_channels: String,
+    #[serde(default = "default_bool_false")]
+    pub volume_normalize: bool,
 
     // Playback
     #[serde(default = "default_true")]
@@ -108,10 +126,38 @@ pub struct UserPreferences {
     pub playback_speed: f32,
     #[serde(default = "default_volume")]
     pub volume: f32,
+    #[serde(default = "default_bool_true")]
+    pub autoplay_next: bool,
+    #[serde(default = "default_bool_false")]
+    pub skip_intro: bool,
+    #[serde(default = "default_bool_true")]
+    pub resume_playback: bool,
 
     // Subtitles
     #[serde(default = "default_subtitle_lang")]
     pub subtitle_language: String,
+    #[serde(default = "default_subtitle_size")]
+    pub subtitle_size: String,
+    #[serde(default = "default_bool_false")]
+    pub subtitles_enabled: bool,
+
+    // Network
+    #[serde(default = "default_buffer_size")]
+    pub buffer_size: String,
+    #[serde(default = "default_bool_true")]
+    pub preload_next: bool,
+    #[serde(default = "default_torrent_connections")]
+    pub torrent_connections: String,
+    #[serde(default = "default_cache_size")]
+    pub cache_size: String,
+
+    // Advanced
+    #[serde(default = "default_player_engine")]
+    pub player_engine: String,
+    #[serde(default = "default_bool_false")]
+    pub debug_logging: bool,
+    #[serde(default = "default_bool_false")]
+    pub analytics: bool,
 
     // General
     #[serde(default = "default_true")]
@@ -119,7 +165,7 @@ pub struct UserPreferences {
     #[serde(default = "default_true")]
     pub auto_update: bool,
 
-    // Advanced
+    // Telemetry
     #[serde(default)]
     pub telemetry_enabled: bool,
 }
@@ -131,36 +177,66 @@ fn default_version() -> u32 {
 fn default_true() -> bool {
     true
 }
-fn default_subtitle_lang() -> String {
-    "en".to_string()
-}
-fn default_language() -> String {
-    "en".to_string()
-}
-fn default_playback_speed() -> f32 {
-    1.0
-}
-fn default_volume() -> f32 {
-    0.8
-}
-fn default_priority() -> i32 {
-    0
-}
+fn default_bool_true() -> bool { true }
+fn default_bool_false() -> bool { false }
+fn default_subtitle_lang() -> String { "en".to_string() }
+fn default_language() -> String { "en".to_string() }
+fn default_theme() -> String { "auto".to_string() }
+fn default_playback_speed() -> f32 { 1.0 }
+fn default_volume() -> f32 { 0.8 }
+fn default_priority() -> i32 { 0 }
+fn default_quality() -> String { "auto".to_string() }
+fn default_video_codec() -> String { "auto".to_string() }
+fn default_max_bitrate() -> String { "auto".to_string() }
+fn default_audio_codec() -> String { "auto".to_string() }
+fn default_audio_channels() -> String { "auto".to_string() }
+fn default_subtitle_size() -> String { "medium".to_string() }
+fn default_buffer_size() -> String { "medium".to_string() }
+fn default_torrent_connections() -> String { "100".to_string() }
+fn default_cache_size() -> String { "1024".to_string() }
+fn default_player_engine() -> String { "auto".to_string() }
 
 impl Default for UserPreferences {
     fn default() -> Self {
         // These defaults should match the frontend's `getDefaultSettings`
         Self {
             version: 1,
-            theme: "dark".to_string(),
-            language: "en".to_string(),
-            autoplay: true,
-            quality: "auto".to_string(),
-            subtitle_language: "en".to_string(),
-            playback_speed: 1.0,
-            volume: 0.8,
-            notifications_enabled: true,
-            auto_update: true,
+            theme: default_theme(),
+            language: default_language(),
+            // Video
+            quality: default_quality(),
+            default_quality: default_quality(),
+            video_codec: default_video_codec(),
+            max_bitrate: default_max_bitrate(),
+            hardware_accel: default_bool_true(),
+            // Audio
+            audio_codec: default_audio_codec(),
+            audio_channels: default_audio_channels(),
+            volume_normalize: default_bool_false(),
+            // Playback
+            autoplay: default_true(),
+            playback_speed: default_playback_speed(),
+            volume: default_volume(),
+            autoplay_next: default_bool_true(),
+            skip_intro: default_bool_false(),
+            resume_playback: default_bool_true(),
+            // Subtitles
+            subtitle_language: default_subtitle_lang(),
+            subtitle_size: default_subtitle_size(),
+            subtitles_enabled: default_bool_false(),
+            // Network
+            buffer_size: default_buffer_size(),
+            preload_next: default_bool_true(),
+            torrent_connections: default_torrent_connections(),
+            cache_size: default_cache_size(),
+            // Advanced
+            player_engine: default_player_engine(),
+            debug_logging: default_bool_false(),
+            analytics: default_bool_false(),
+            // General
+            notifications_enabled: default_true(),
+            auto_update: default_true(),
+            // Telemetry
             telemetry_enabled: false,
         }
     }

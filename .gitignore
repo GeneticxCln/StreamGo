@@ -68,3 +68,4 @@ logs/
 # System files
 .thumbs.db
 desktop.ini
+.aider*

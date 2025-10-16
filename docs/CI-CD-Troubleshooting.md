@@ -102,6 +102,43 @@
     Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 ```
 
+## 🐧 Linux Build-Specific Issues
+
+### Arch Linux: `linuxdeploy` Fails to Create AppImage
+
+**Symptom**:
+The build process fails with the following error when creating an AppImage bundle:
+```
+Error: failed to bundle project:
+- `failed to run linuxdeploy`
+```
+
+**Root Cause**:
+This error can occur on Arch Linux systems even when all the required dependencies are installed. A likely cause is a conflict or incompatibility with the `webkit2gtk-4.1` package, especially if it has been added to the `IgnorePkg` list in your `pacman.conf`. This can create a subtle environment issue that `linuxdeploy` (the tool used to create AppImages) cannot handle correctly.
+
+**Workaround**:
+If you encounter this issue, you can bypass the AppImage creation and build a different Linux package format, such as a Debian (`.deb`) or RPM (`.rpm`) package.
+
+1.  **Open** `src-tauri/tauri.conf.json`.
+2.  **Find** the `bundle` section.
+3.  **Modify** the `targets` property from `"all"` to `["deb"]` or `["rpm"]`.
+
+**Example (`tauri.conf.json`):**
+```json
+"bundle": {
+  "active": true,
+  "targets": ["deb"], // Changed from "all"
+  "icon": [
+    "icons/32x32.png",
+    "icons/128x128.png",
+    "icons/128x128@2x.png",
+    "icons/icon.icns",
+    "icons/icon.ico"
+  ]
+}
+```
+This change instructs the bundler to only create the specified package, avoiding the problematic `linuxdeploy` step.
+
 ## 🎯 **Best Practices**
 
 ### **1. Progressive CI Strategy**

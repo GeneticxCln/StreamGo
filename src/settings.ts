@@ -87,6 +87,10 @@ export class SettingsManager {
                                 <option value="dark" ${this.currentSettings.theme === 'dark' ? 'selected' : ''}>Dark</option>
                                 <option value="light" ${this.currentSettings.theme === 'light' ? 'selected' : ''}>Light</option>
                                 <option value="system" ${this.currentSettings.theme === 'system' ? 'selected' : ''}>System</option>
+                                <option value="dracula" ${this.currentSettings.theme === 'dracula' ? 'selected' : ''}>Dracula</option>
+                                <option value="solarized-light" ${this.currentSettings.theme === 'solarized-light' ? 'selected' : ''}>Solarized Light</option>
+                                <option value="solarized-dark" ${this.currentSettings.theme === 'solarized-dark' ? 'selected' : ''}>Solarized Dark</option>
+                                <option value="nord" ${this.currentSettings.theme === 'nord' ? 'selected' : ''}>Nord</option>
                             </select>
                         </div>
 

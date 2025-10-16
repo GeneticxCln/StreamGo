@@ -15,6 +15,10 @@ export class StreamGoApp {
     private settings: UserPreferences | null;
     private currentMedia: MediaItem | null;
     private mediaMap: Record<string, MediaItem>;
+    private currentStreams: any[] = [];
+    private selectedStreamUrl: string | null = null;
+    private currentSubtitles: any[] = [];
+    private discover = { mediaType: 'movie', catalogId: '', items: [] as any[], page: 0, pageSize: 20, loading: false, catalogs: [] as any[], skip: 0, hasMore: false };
 
     constructor() {
         this.currentSection = 'home';
@@ -30,6 +34,8 @@ export class StreamGoApp {
     init() {
         console.log('StreamGo initialized');
         this.setupEventListeners();
+        this.attachDiscoverEventListeners();
+        this.attachSubtitleSelectorListeners();
         this.initializeTheme();
         this.loadSettings();
         this.loadLibrary();
@@ -38,23 +44,28 @@ export class StreamGoApp {
     }
 
     initializeTheme() {
-        // Check localStorage first, then system preference
-        const savedTheme = localStorage.getItem('theme');
-        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        const currentTheme = savedTheme || systemTheme;
-        
-        this.applyTheme(currentTheme);
+        // Resolve theme preference ('auto'/'system' follows OS setting)
+        const preference = localStorage.getItem('theme') || 'auto';
+        this.applyTheme(preference);
 
-        // Listen for system theme changes if no saved preference
-        if (!savedTheme) {
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-                this.applyTheme(e.matches ? 'dark' : 'light');
-            });
-        }
+        // Listen for system theme changes when using auto/system
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        media.addEventListener('change', () => {
+            const currentPref = localStorage.getItem('theme') || 'auto';
+            if (currentPref === 'auto' || currentPref === 'system') {
+                this.applyTheme(currentPref);
+            }
+        });
     }
 
     applyTheme(theme: string) {
-        document.documentElement.setAttribute('data-theme', theme);
+        // Compute effective theme
+        let effective = theme;
+        if (theme === 'auto' || theme === 'system') {
+            effective = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', effective);
+        // Persist preference (not the resolved theme)
         localStorage.setItem('theme', theme);
     }
 
@@ -146,6 +157,8 @@ export class StreamGoApp {
             this.loadContinueWatching();
             this.loadTrending();
             this.loadPopular();
+        } else if (section === 'discover') {
+            this.initDiscover();
         } else if (section === 'library') {
             this.loadLibrary();
         } else if (section === 'addons') {
@@ -155,6 +168,138 @@ export class StreamGoApp {
         } else if (section === 'diagnostics') {
             this.loadDiagnostics();
         }
+    }
+
+    private attachDiscoverEventListeners() {
+        const typeSelect = document.getElementById('discover-type-select') as HTMLSelectElement | null;
+        const catalogSelect = document.getElementById('discover-catalog-select') as HTMLSelectElement | null;
+        const refreshBtn = document.getElementById('discover-refresh-btn') as HTMLButtonElement | null;
+        const loadMoreBtn = document.getElementById('discover-load-more') as HTMLButtonElement | null;
+
+        if (typeSelect) {
+            typeSelect.addEventListener('change', () => {
+                this.discover.mediaType = typeSelect.value || 'movie';
+                this.discover.catalogId = '';
+                this.discover.items = [];
+                this.discover.page = 0;
+                this.loadDiscoverCatalogs();
+            });
+        }
+        if (catalogSelect) {
+            catalogSelect.addEventListener('change', () => {
+                this.discover.catalogId = catalogSelect.value || '';
+            });
+        }
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                this.loadDiscoverItems(true);
+            });
+        }
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', () => {
+                this.loadDiscoverItems(false);
+            });
+        }
+    }
+
+    private async initDiscover() {
+        const typeSelect = document.getElementById('discover-type-select') as HTMLSelectElement | null;
+        if (typeSelect) {
+            this.discover.mediaType = typeSelect.value || this.discover.mediaType;
+        }
+        await this.loadDiscoverCatalogs();
+    }
+
+    private async loadDiscoverCatalogs() {
+        const catalogSelect = document.getElementById('discover-catalog-select') as HTMLSelectElement | null;
+        const grid = document.getElementById('discover-grid');
+        const loading = document.getElementById('discover-loading');
+        const loadMoreBtn = document.getElementById('discover-load-more');
+        try {
+            if (loading) loading.style.display = 'block';
+            if (grid) grid.innerHTML = this.renderSkeletonGrid(8);
+            const catalogs = await invoke<any[]>('list_catalogs', { media_type: this.discover.mediaType });
+            this.discover.catalogs = Array.isArray(catalogs) ? catalogs : [];
+            if (catalogSelect) {
+                catalogSelect.innerHTML = '<option value="">Select a catalog...</option>' +
+                    this.discover.catalogs.map(c => `<option value="${escapeHtml(String(c.id))}">${escapeHtml(String(c.name))} — ${escapeHtml(String(c.addon_name || ''))}</option>`).join('');
+                // Preselect first catalog if available
+                const first = this.discover.catalogs[0];
+                if (first) {
+                    catalogSelect.value = first.id;
+                    this.discover.catalogId = first.id;
+                } else {
+                    this.discover.catalogId = '';
+                }
+            }
+            // Reset grid and paging state
+            this.discover.items = [];
+            this.discover.page = 0;
+            this.discover.skip = 0;
+            this.discover.hasMore = false;
+            if (grid) grid.innerHTML = '<p class="empty-message">Select a catalog to browse content</p>';
+            if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+        } catch (err) {
+            console.error('Failed to load catalogs:', err);
+            if (grid) grid.innerHTML = this.renderErrorState('Unable to load catalogs', 'Try again or select another type.');
+        } finally {
+            if (loading) loading.style.display = 'none';
+        }
+    }
+
+    private async loadDiscoverItems(reset: boolean) {
+        const grid = document.getElementById('discover-grid');
+        const loading = document.getElementById('discover-loading');
+        const loadMoreBtn = document.getElementById('discover-load-more') as HTMLButtonElement | null;
+        if (!this.discover.catalogId) {
+            if (grid) grid.innerHTML = '<p class="empty-message">Select a catalog to browse content</p>';
+            if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+            return;
+        }
+        try {
+            if (reset) {
+                this.discover.items = [];
+                this.discover.page = 0;
+                this.discover.skip = 0;
+                this.discover.hasMore = false;
+            }
+            if (loading) loading.style.display = 'block';
+            if (grid && reset) grid.innerHTML = this.renderSkeletonGrid(8);
+            const extras: any = { skip: String(this.discover.skip), limit: String(this.discover.pageSize) };
+            const result = await invoke<any>('aggregate_catalogs', { media_type: this.discover.mediaType, catalog_id: this.discover.catalogId, extra: extras });
+            const metas = (result && Array.isArray(result.items)) ? result.items : [];
+            const newItems = metas.map((m: any) => this.mapMetaPreviewToMediaItem(m));
+            // Deduplicate by id
+            const existingIds = new Set(this.discover.items.map(i => i.id));
+            const appended = newItems.filter((i: any) => !existingIds.has(i.id));
+            this.discover.items = this.discover.items.concat(appended);
+            this.discover.skip += metas.length;
+            this.discover.hasMore = metas.length >= this.discover.pageSize;
+            this.renderDiscoverPage();
+            if (loadMoreBtn) loadMoreBtn.style.display = this.discover.hasMore ? 'inline-flex' : 'none';
+        } catch (err) {
+            console.error('Failed to load catalog items:', err);
+            if (grid) grid.innerHTML = this.renderErrorState('Unable to load catalog items', 'Please try again later.');
+            if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+        } finally {
+            if (loading) loading.style.display = 'none';
+        }
+    }
+
+    private renderDiscoverPage() {
+        const grid = document.getElementById('discover-grid');
+        const loadMoreBtn = document.getElementById('discover-load-more') as HTMLButtonElement | null;
+        const pageItems = this.discover.items;
+        if (!grid) return;
+        if (pageItems.length === 0) {
+            grid.innerHTML = '<p class="empty-message">No items found in this catalog</p>';
+            if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+            return;
+        }
+        grid.innerHTML = pageItems.map(item => this.renderMediaCard(item, false, false)).join('');
+        setupLazyLoading();
+        this.attachCardListeners();
+        if (loadMoreBtn) loadMoreBtn.style.display = this.discover.hasMore ? 'inline-flex' : 'none';
     }
 
     async loadDiagnostics() {
@@ -348,10 +493,35 @@ export class StreamGoApp {
                 console.warn('Could not fetch addon health data:', err);
             }
 
+            // Auto-disable unhealthy addons (health_score < 30)
+            try {
+                const toDisable = addons.filter((a: any) => {
+                    const h = healthData.get(a.id);
+                    return a.enabled && h && typeof h.health_score === 'number' && h.health_score < 30;
+                });
+                if (toDisable.length > 0) {
+                    for (const a of toDisable) {
+                        try {
+                            await invoke('disable_addon', { addon_id: a.id });
+                            const h = healthData.get(a.id);
+                            const score = h && h.health_score !== undefined ? Math.round(h.health_score) : 'low';
+                            Toast.info(`Disabled add-on "${escapeHtml(a.name)}" due to poor health (${score})`);
+                        } catch (e) {
+                            console.warn('Failed to auto-disable addon', a.id, e);
+                        }
+                    }
+                    await this.loadAddons();
+                    return;
+                }
+            } catch (e) {
+                console.warn('Auto-disable check failed:', e);
+            }
+
             addonsEl.innerHTML = addons.map(addon => {
                 const health = healthData.get(addon.id);
                 return this.renderAddonCard(addon, health);
             }).join('');
+            this.attachAddonActionListeners();
 
         } catch (err) {
             console.error('Error loading add-ons:', err);
@@ -413,6 +583,10 @@ export class StreamGoApp {
             `;
         }
 
+        const healthTitle = health
+            ? `Health Score: ${Math.round(healthScore)}${health.last_error ? ' • Last error: ' + escapeHtml(String(health.last_error)) : ''}`
+            : '';
+
         return `
             <div class="addon-card">
                 <div class="addon-header">
@@ -421,7 +595,7 @@ export class StreamGoApp {
                         <span class="addon-version">v${escapeHtml(addon.version)}</span>
                     </div>
                     <div class="addon-badges">
-                        ${health ? `<span class="addon-health-badge ${healthBadgeClass}" title="Health Score: ${healthScore}">${healthStatusText}</span>` : ''}
+                        ${health ? `<span class="addon-health-badge ${healthBadgeClass}" title="${healthTitle}">${healthStatusText}</span>` : ''}
                         <span class="addon-status ${addon.enabled ? 'enabled' : 'disabled'}">
                             ${addon.enabled ? 'Enabled' : 'Disabled'}
                         </span>
@@ -431,6 +605,12 @@ export class StreamGoApp {
                 ${healthMetrics}
                 <div class="addon-meta">
                     <span class="addon-author">By ${escapeHtml(addon.author)}</span>
+                </div>
+                <div class="addon-actions" style="margin-top: 10px; display: flex; gap: 8px;">
+                    <button class="btn btn-secondary addon-action ${addon.enabled ? 'btn-disable' : 'btn-enable'}" data-id="${escapeHtml(addon.id)}">
+                        ${addon.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button class="btn btn-secondary addon-action btn-uninstall" data-id="${escapeHtml(addon.id)}">Uninstall</button>
                 </div>
             </div>
         `;
@@ -489,7 +669,7 @@ export class StreamGoApp {
 
     async installAddon() {
         const url = await Modal.prompt(
-            'Enter the add-on URL (must include manifest.json)',
+            'Enter the add-on base URL (or manifest.json)',
             'Install Add-on',
             'https://example.com/addon'
         );
@@ -503,6 +683,68 @@ export class StreamGoApp {
         } catch (err) {
             console.error('Error installing add-on:', err);
             Toast.error(`Error installing add-on: ${err}`);
+        }
+    }
+
+    private attachAddonActionListeners() {
+        // Enable
+        document.querySelectorAll('.btn-enable.addon-action').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = (btn as HTMLElement).getAttribute('data-id') || '';
+                if (!id) return;
+                await this.enableAddon(id);
+            });
+        });
+        // Disable
+        document.querySelectorAll('.btn-disable.addon-action').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = (btn as HTMLElement).getAttribute('data-id') || '';
+                if (!id) return;
+                await this.disableAddon(id);
+            });
+        });
+        // Uninstall
+        document.querySelectorAll('.btn-uninstall.addon-action').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = (btn as HTMLElement).getAttribute('data-id') || '';
+                if (!id) return;
+                const confirmed = await Modal.confirm('Uninstall this add-on?', 'Uninstall Add-on');
+                if (!confirmed) return;
+                await this.uninstallAddon(id);
+            });
+        });
+    }
+
+    private async enableAddon(id: string) {
+        try {
+            await invoke('enable_addon', { addon_id: id });
+            Toast.success('Add-on enabled');
+            await this.loadAddons();
+        } catch (e) {
+            console.error('Enable addon failed:', e);
+            Toast.error(`Failed to enable add-on: ${e}`);
+        }
+    }
+
+    private async disableAddon(id: string) {
+        try {
+            await invoke('disable_addon', { addon_id: id });
+            Toast.success('Add-on disabled');
+            await this.loadAddons();
+        } catch (e) {
+            console.error('Disable addon failed:', e);
+            Toast.error(`Failed to disable add-on: ${e}`);
+        }
+    }
+
+    private async uninstallAddon(id: string) {
+        try {
+            await invoke('uninstall_addon', { addon_id: id });
+            Toast.success('Add-on uninstalled');
+            await this.loadAddons();
+        } catch (e) {
+            console.error('Uninstall addon failed:', e);
+            Toast.error(`Failed to uninstall add-on: ${e}`);
         }
     }
 
@@ -706,6 +948,8 @@ export class StreamGoApp {
         try {
             await invoke('save_settings', { settings });
             this.settings = settings;
+            // Apply theme immediately
+            this.applyTheme(settings.theme);
             Toast.success('Settings saved successfully!');
         } catch (err) {
             console.error('Error saving settings:', err);
@@ -780,7 +1024,8 @@ export class StreamGoApp {
         const year = media.year || 'N/A';
         const mediaType = typeof media.media_type === 'string' ? escapeHtml(media.media_type) : 
                          ('Movie' in media.media_type ? 'Movie' : 
-                          'TvShow' in media.media_type ? 'TV Show' : 'Unknown');
+                          'TvShow' in media.media_type ? 'TV Show' : 
+                          'Episode' in media.media_type ? 'Episode' : 'Unknown');
         const rating = media.rating;
         const duration = media.duration ? escapeHtml(`${media.duration} min`) : 'N/A';
         const escapedTitle = escapeHtml(media.title);
@@ -870,6 +1115,29 @@ export class StreamGoApp {
             `;
         }
 
+        // Append streams section and load streams
+        try {
+            const dc = document.getElementById('detail-content');
+            if (dc) {
+                const streamsSection = document.createElement('div');
+                streamsSection.id = 'streams-container';
+                streamsSection.innerHTML = `
+                    <div class="settings-section">
+                        <h3>🧩 Streams</h3>
+                        <div id="streams-list">
+                            <div class="loading-spinner">Loading streams...</div>
+                        </div>
+                    </div>
+                `;
+                dc.appendChild(streamsSection);
+                this.selectedStreamUrl = null;
+                this.loadStreamsForMedia(media);
+                // Subtitle URL selection removed
+                this.loadSubtitlesForMedia(media);
+            }
+        } catch (e) {
+            console.warn('Failed to render streams section:', e);
+        }
         // After injecting detail images, initialize lazy loading for them
         setupLazyLoading('#detail-hero img[data-src], #detail-content img[data-src]');
     }
@@ -877,7 +1145,22 @@ export class StreamGoApp {
     async playMedia(mediaId: string): Promise<void> {
         try {
             Toast.info('Loading stream...');
-            const streamUrl = await invoke<string>('get_stream_url', { content_id: mediaId });
+            const media = this.currentMedia || this.mediaMap[mediaId];
+            const typeStr = (() => {
+                if (!media) return undefined;
+                const mt: any = media.media_type;
+                if (typeof mt === 'string') return mt.toLowerCase();
+                if (mt && typeof mt === 'object') {
+                    if ('Movie' in mt) return 'movie';
+                    if ('TvShow' in mt) return 'series';
+                    if ('Episode' in mt) return 'episode';
+                    if ('Documentary' in mt) return 'movie';
+                    if ('LiveTv' in mt) return 'live';
+                    if ('Podcast' in mt) return 'podcast';
+                }
+                return undefined;
+            })();
+            const streamUrl = this.selectedStreamUrl || await invoke<string>('get_stream_url', { content_id: mediaId, media_type: typeStr });
             
             // Set stream URL for external player manager
             const externalPlayerManager = (window as any).externalPlayerManager;
@@ -933,6 +1216,179 @@ export class StreamGoApp {
         }
     }
 
+    private attachSubtitleSelectorListeners() {
+        const toggleBtn = document.getElementById('subtitle-toggle-btn');
+        const container = document.getElementById('subtitle-selector');
+        if (!container || !toggleBtn) return;
+        // Create menu if not exists
+        let menu = document.getElementById('subtitle-menu');
+        if (!menu) {
+            menu = document.createElement('div');
+            menu.id = 'subtitle-menu';
+            menu.style.position = 'absolute';
+            menu.style.top = '42px';
+            menu.style.right = '0';
+            menu.style.background = 'var(--background-secondary)';
+            menu.style.border = '1px solid var(--border-color)';
+            menu.style.borderRadius = '8px';
+            menu.style.padding = '8px';
+            menu.style.minWidth = '220px';
+            menu.style.display = 'none';
+            menu.style.zIndex = '1000';
+            container.style.position = 'relative';
+            container.appendChild(menu);
+        }
+        toggleBtn.addEventListener('click', () => {
+            const m = document.getElementById('subtitle-menu');
+            if (!m) return;
+            m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+        });
+        // Hide when clicking outside
+        document.addEventListener('click', (e) => {
+            const m = document.getElementById('subtitle-menu');
+            if (!m) return;
+            const within = container.contains(e.target as Node);
+            if (!within) m.style.display = 'none';
+        });
+    }
+
+    private async loadSubtitlesForMedia(media: MediaItem): Promise<void> {
+        const menu = document.getElementById('subtitle-menu');
+        if (!menu) return;
+        menu.innerHTML = '<div class="loading-spinner">Loading subtitles...</div>';
+        try {
+            const mt: any = media.media_type as any;
+            const typeStr = (typeof mt === 'string') ? mt.toLowerCase() : (mt && typeof mt === 'object') ? (
+                'Movie' in mt ? 'movie' :
+                'TvShow' in mt ? 'series' :
+                'Episode' in mt ? 'episode' :
+                'Documentary' in mt ? 'movie' :
+                'LiveTv' in mt ? 'live' :
+                'Podcast' in mt ? 'podcast' : undefined
+            ) : undefined;
+            const subs = await invoke<any[]>('get_subtitles', { content_id: media.id, media_type: typeStr });
+            this.currentSubtitles = Array.isArray(subs) ? subs : [];
+            if (this.currentSubtitles.length === 0) {
+                menu.innerHTML = '<div class="empty-message">No subtitles available</div>';
+                return;
+            }
+            // Group by language
+            const byLang: Record<string, any[]> = {};
+            this.currentSubtitles.forEach(s => {
+                const lang = s.lang || 'und';
+                if (!byLang[lang]) byLang[lang] = [];
+                byLang[lang].push(s);
+            });
+            const langs = Object.keys(byLang).sort();
+            const listHtml = [`<button class="btn btn-secondary" data-sub="off" style="width:100%; margin-bottom:6px;">Off</button>`]
+                .concat(langs.map(l => {
+                    // pick first URL per language
+                    const first = byLang[l][0];
+                    const label = l.toUpperCase();
+                    return `<button class="btn btn-secondary subtitle-choice" data-url="${escapeHtml(String(first.url))}" data-lang="${escapeHtml(String(l))}" style="width:100%; margin-bottom:6px;">${label}</button>`;
+                }))
+                .join('');
+            menu.innerHTML = listHtml;
+            menu.querySelectorAll('button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const off = (btn as HTMLElement).getAttribute('data-sub') === 'off';
+                    if (off) {
+                        this.clearSubtitle();
+                // Subtitle URL selection removed
+                        try { window?.Toast?.info('Subtitles off'); } catch(_){}
+                    } else {
+                        const url = (btn as HTMLElement).getAttribute('data-url') || '';
+                        const lang = (btn as HTMLElement).getAttribute('data-lang') || 'und';
+                        if (url) {
+                            this.applySubtitle(url, lang);
+                // Subtitle URL selection removed
+                            try { window?.Toast?.success(`Subtitles: ${lang.toUpperCase()}`); } catch(_){}
+                        }
+                    }
+                    (menu as HTMLElement).style.display = 'none';
+                });
+            });
+        } catch (err) {
+            console.error('Failed to load subtitles:', err);
+            menu.innerHTML = '<div class="error-message">Failed to load subtitles</div>';
+        }
+    }
+
+    private applySubtitle(url: string, lang: string) {
+        const video = document.getElementById('video-player') as HTMLVideoElement | null;
+        if (!video) return;
+        // Remove existing tracks
+        const existing = video.querySelectorAll('track');
+        existing.forEach(t => t.remove());
+        const track = document.createElement('track');
+        track.kind = 'subtitles';
+        track.src = url;
+        track.srclang = lang;
+        track.label = lang.toUpperCase();
+        track.default = true;
+        video.appendChild(track);
+        // Try to show as soon as metadata is loaded
+        track.addEventListener('load', () => {
+            try {
+                // @ts-ignore
+                track.mode = 'showing';
+            } catch (_) {}
+        });
+    }
+
+    private clearSubtitle() {
+        const video = document.getElementById('video-player') as HTMLVideoElement | null;
+        if (!video) return;
+        const existing = video.querySelectorAll('track');
+        existing.forEach(t => t.remove());
+    }
+
+    private async loadStreamsForMedia(media: MediaItem): Promise<void> {
+        const listEl = document.getElementById('streams-list');
+        if (!listEl) return;
+        try {
+            const mt: any = media.media_type as any;
+            const typeStr = (typeof mt === 'string') ? mt.toLowerCase() : (mt && typeof mt === 'object') ? (
+                'Movie' in mt ? 'movie' :
+                'TvShow' in mt ? 'series' :
+                'Episode' in mt ? 'episode' :
+                'Documentary' in mt ? 'movie' :
+                'LiveTv' in mt ? 'live' :
+                'Podcast' in mt ? 'podcast' : undefined
+            ) : undefined;
+            const streams = await invoke<any[]>('get_streams', { content_id: media.id, media_type: typeStr });
+            this.currentStreams = Array.isArray(streams) ? streams : [];
+            if (this.currentStreams.length === 0) {
+                listEl.innerHTML = `<div class="empty-message">No streams available from enabled add-ons.</div>`;
+                return;
+            }
+            listEl.innerHTML = `
+                <div style="display:flex; gap:8px; flex-wrap: wrap;">
+                    ${this.currentStreams.map((s: any, i: number) => `
+                        <button class="btn btn-secondary stream-choice" data-url="${escapeHtml(String(s.url))}" title="${escapeHtml(String(s.description || s.title || s.name || ''))}">
+                            ${escapeHtml(String(s.name || s.title || ('Stream ' + (i + 1))))}
+                        </button>
+                    `).join('')}
+                </div>
+                <small class="setting-description">Select a stream to prefer it; Play Now will use your selection.</small>
+            `;
+            document.querySelectorAll('.stream-choice').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const url = (btn as HTMLElement).getAttribute('data-url') || '';
+                    if (url) {
+                        this.selectedStreamUrl = url;
+                        try { window?.Toast?.success('Stream selected'); } catch (_) {}
+                        document.querySelectorAll('.stream-choice').forEach(b => b.classList.remove('btn-primary'));
+                        (btn as HTMLElement).classList.add('btn-primary');
+                    }
+                });
+            });
+        } catch (err) {
+            console.error('Failed to load streams:', err);
+            listEl.innerHTML = `<div class="error-message">Failed to load streams.</div>`;
+        }
+    }
+
     // Continue Watching
     async loadContinueWatching() {
         const continueWatchingRow = document.getElementById('continue-watching-row');
@@ -967,83 +1423,90 @@ export class StreamGoApp {
         }
     }
 
-    // Load Trending Content
+    // Map Addon MetaPreview to a minimal MediaItem for UI rendering
+    private mapMetaPreviewToMediaItem(meta: any): MediaItem {
+        const mediaType = typeof meta.media_type === 'string' ? meta.media_type : (meta.type || meta.mediaType || 'movie');
+        // Attempt to parse year from releaseInfo if present
+        let year: number | undefined = undefined;
+        const rel = meta.releaseInfo || meta.release || '';
+        if (typeof rel === 'string') {
+            const m = rel.match(/(19|20)\d{2}/);
+            if (m) year = parseInt(m[0]);
+        }
+        return {
+            id: String(meta.id),
+            title: meta.name || meta.title || 'Unknown',
+            media_type: mediaType,
+            year,
+            genre: [],
+            description: meta.description || '',
+            poster_url: meta.poster || undefined,
+            backdrop_url: meta.background || undefined,
+            rating: typeof meta.imdbRating === 'number' ? meta.imdbRating : undefined,
+            duration: undefined,
+            added_to_library: undefined,
+            watched: false,
+            progress: 0,
+        } as unknown as MediaItem;
+    }
+
+    // Load Trending Content using addon catalogs
     async loadTrending() {
         const trendingRow = document.getElementById('trending-row');
         const trendingSection = document.getElementById('trending-section');
-        
         if (!trendingRow) return;
-
         try {
-            // Try to get trending from backend, fallback to stub data
-            let items: MediaItem[] = [];
-            try {
-                items = await invoke<MediaItem[]>('get_trending');
-            } catch (err) {
-                console.warn('Backend trending not available, using stub data');
-                // Use library items as trending for now
-                items = this.libraryItems.slice(0, 10);
-            }
-            
-            if (items.length === 0) {
-                if (trendingSection) {
-                    trendingSection.style.display = 'none';
-                }
+            const catalogs = await invoke<any[]>('list_catalogs', { media_type: 'movie' });
+            if (!catalogs || catalogs.length === 0) {
+                if (trendingSection) trendingSection.style.display = 'none';
                 return;
             }
-
-            if (trendingSection) {
-                trendingSection.style.display = 'block';
+            // Prefer catalog with name containing 'trending', else first
+            const selected = catalogs.find(c => String(c.name).toLowerCase().includes('trending')) || catalogs[0];
+            const result = await invoke<any>('aggregate_catalogs', { media_type: 'movie', catalog_id: selected.id });
+            const metas = (result && Array.isArray(result.items)) ? result.items : [];
+            if (metas.length === 0) {
+                if (trendingSection) trendingSection.style.display = 'none';
+                return;
             }
-            
-            trendingRow.innerHTML = items.map(item => this.renderMediaCard(item, false, false)).join('');
+            if (trendingSection) trendingSection.style.display = 'block';
+            const items = metas.slice(0, 10).map((m: any) => this.mapMetaPreviewToMediaItem(m));
+            trendingRow.innerHTML = items.map((item: any) => this.renderMediaCard(item, false, false)).join('');
             setupLazyLoading();
             this.attachCardListeners();
         } catch (err) {
-            console.error('Error loading trending:', err);
-            if (trendingSection) {
-                trendingSection.style.display = 'none';
-            }
+            console.warn('Trending catalogs not available:', err);
+            if (trendingSection) trendingSection.style.display = 'none';
         }
     }
 
-    // Load Popular Content
+    // Load Popular Content using addon catalogs
     async loadPopular() {
         const popularRow = document.getElementById('popular-row');
         const popularSection = document.getElementById('popular-section');
-        
         if (!popularRow) return;
-
         try {
-            // Try to get popular from backend, fallback to stub data
-            let items: MediaItem[] = [];
-            try {
-                items = await invoke<MediaItem[]>('get_popular');
-            } catch (err) {
-                console.warn('Backend popular not available, using stub data');
-                // Use library items as popular for now
-                items = this.libraryItems.slice(0, 10);
-            }
-            
-            if (items.length === 0) {
-                if (popularSection) {
-                    popularSection.style.display = 'none';
-                }
+            const catalogs = await invoke<any[]>('list_catalogs', { media_type: 'movie' });
+            if (!catalogs || catalogs.length === 0) {
+                if (popularSection) popularSection.style.display = 'none';
                 return;
             }
-
-            if (popularSection) {
-                popularSection.style.display = 'block';
+            // Prefer catalog with name containing 'popular', else first
+            const selected = catalogs.find(c => String(c.name).toLowerCase().includes('popular')) || catalogs[0];
+            const result = await invoke<any>('aggregate_catalogs', { media_type: 'movie', catalog_id: selected.id });
+            const metas = (result && Array.isArray(result.items)) ? result.items : [];
+            if (metas.length === 0) {
+                if (popularSection) popularSection.style.display = 'none';
+                return;
             }
-            
-            popularRow.innerHTML = items.map(item => this.renderMediaCard(item, false, false)).join('');
+            if (popularSection) popularSection.style.display = 'block';
+            const items = metas.slice(0, 10).map((m: any) => this.mapMetaPreviewToMediaItem(m));
+            popularRow.innerHTML = items.map((item: any) => this.renderMediaCard(item, false, false)).join('');
             setupLazyLoading();
             this.attachCardListeners();
         } catch (err) {
-            console.error('Error loading popular:', err);
-            if (popularSection) {
-                popularSection.style.display = 'none';
-            }
+            console.warn('Popular catalogs not available:', err);
+            if (popularSection) popularSection.style.display = 'none';
         }
     }
 

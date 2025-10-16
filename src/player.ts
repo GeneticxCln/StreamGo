@@ -483,6 +483,10 @@ export class VideoPlayer {
         this.cleanupPreviousStream();
         this.video.pause();
         this.video.src = '';
+        this.video.srcObject = null;
+
+        // Clear any event listeners
+        this.video.removeEventListener('loadedmetadata', () => this.setupDashQualitySelector());
     }
 
     /**
@@ -557,11 +561,19 @@ export class VideoPlayer {
      * Revokes blob URLs created for local subtitles to prevent memory leaks.
      */
     private cleanupLocalSubtitles(): void {
-        this.localSubtitleBlobs.forEach(url => URL.revokeObjectURL(url));
+        // Revoke all blob URLs to prevent memory leaks
+        this.localSubtitleBlobs.forEach(url => {
+            try {
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.warn('Failed to revoke blob URL:', error);
+            }
+        });
         this.localSubtitleBlobs = [];
         this.originalSubtitleContent.clear();
         this.trackElementMap.clear();
         this.subtitleOffset = 0;
+
         const offsetDisplay = document.getElementById('subtitle-sync-offset');
         if (offsetDisplay) offsetDisplay.textContent = '0.0s';
 
@@ -569,7 +581,11 @@ export class VideoPlayer {
         const tracks = this.video.querySelectorAll('track');
         tracks.forEach(track => {
             if (track.src.startsWith('blob:')) {
-                this.video.removeChild(track);
+                try {
+                    this.video.removeChild(track);
+                } catch (error) {
+                    console.warn('Failed to remove track element:', error);
+                }
             }
         });
     }
@@ -624,7 +640,12 @@ export class VideoPlayer {
             const newUrl = URL.createObjectURL(newBlob);
 
             // Revoke the old URL and update references
-            URL.revokeObjectURL(currentSrc);
+            try {
+                URL.revokeObjectURL(currentSrc);
+            } catch (error) {
+                console.warn('Failed to revoke old blob URL:', error);
+            }
+
             const oldUrlIndex = this.localSubtitleBlobs.indexOf(currentSrc);
             if (oldUrlIndex > -1) this.localSubtitleBlobs.splice(oldUrlIndex, 1);
             this.localSubtitleBlobs.push(newUrl);

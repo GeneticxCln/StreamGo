@@ -10,6 +10,8 @@ pub struct Database {
 impl Database {
     pub fn new_in_memory() -> Result<Self, anyhow::Error> {
         let conn = Connection::open_in_memory()?;
+        // Enforce foreign key constraints
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
 
         // Run migrations to set up schema
         let migration_runner = MigrationRunner::new();
@@ -27,6 +29,8 @@ impl Database {
         let db_path = app_data_dir.join("streamgo.db");
 
         let conn = Connection::open(db_path)?;
+        // Enforce foreign key constraints
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
 
         // Run migrations to set up or upgrade schema
         let migration_runner = MigrationRunner::new();
@@ -182,7 +186,7 @@ impl Database {
 
     pub fn get_addons(&self) -> Result<Vec<Addon>, anyhow::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, version, description, author, url, enabled, addon_type, manifest 
+            "SELECT id, name, version, description, author, url, enabled, addon_type, manifest, priority 
              FROM addons",
         )?;
 
@@ -215,7 +219,7 @@ impl Database {
                 enabled: row.get(6)?,
                 addon_type,
                 manifest,
-                priority: 0, // Default for old DB records
+                priority: row.get(9).unwrap_or(0),
             })
         })?;
 
@@ -235,11 +239,12 @@ impl Database {
         };
 
         let manifest_json = serde_json::to_string(&addon.manifest)?;
+        let installed_at_str = chrono::Utc::now().to_rfc3339();
 
         self.conn.execute(
             "INSERT OR REPLACE INTO addons 
-             (id, name, version, description, author, url, enabled, addon_type, manifest)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, name, version, description, author, url, enabled, addon_type, manifest, installed_at, priority)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 addon.id,
                 addon.name,
@@ -249,7 +254,9 @@ impl Database {
                 addon.url,
                 addon.enabled,
                 addon_type_str,
-                manifest_json
+                manifest_json,
+                installed_at_str,
+                addon.priority
             ],
         )?;
 

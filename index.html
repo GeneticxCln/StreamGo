@@ -196,11 +196,57 @@
                 <!-- Add-ons Section -->
                 <section id="addons-section" class="content-section">
                     <div class="addons-header">
-                        <h2>Installed Add-ons</h2>
-                        <button class="btn btn-primary" onclick="app.installAddon()">Install Add-on</button>
+                        <h2>Add-ons</h2>
+                        <div class="tab-nav">
+                            <button class="tab-btn active" data-tab="installed">Installed</button>
+                            <button class="tab-btn" data-tab="store">Discover Store</button>
+                        </div>
                     </div>
-                    <div id="addons-list" class="addons-grid">
-                        <p class="empty-message">Loading add-ons...</p>
+
+                    <!-- Installed Add-ons Tab -->
+                    <div id="installed-addons-tab" class="tab-content active">
+                        <div class="tab-header">
+                            <p class="tab-description">Manage your installed add-ons</p>
+                            <button class="btn btn-primary" onclick="app.installAddon()">Install from URL</button>
+                        </div>
+                        <div id="addons-list" class="addons-grid">
+                            <p class="empty-message">Loading add-ons...</p>
+                        </div>
+                    </div>
+
+                    <!-- Addon Store Tab -->
+                    <div id="store-addons-tab" class="tab-content" style="display: none;">
+                        <div class="store-header">
+                            <div class="store-search-bar">
+                                <input type="text" id="store-search-input" placeholder="Search add-ons by name, category, or features...">
+                                <button id="store-search-btn" class="btn btn-secondary">Search</button>
+                            </div>
+                            <div class="store-filters">
+                                <select id="store-category-filter" class="filter-select">
+                                    <option value="all">All Categories</option>
+                                    <option value="movies">Movies</option>
+                                    <option value="series">TV Series</option>
+                                    <option value="anime">Anime</option>
+                                    <option value="documentaries">Documentaries</option>
+                                    <option value="subtitles">Subtitles</option>
+                                    <option value="general">General</option>
+                                </select>
+                                <select id="store-sort-filter" class="filter-select">
+                                    <option value="featured">Featured</option>
+                                    <option value="popular">Most Popular</option>
+                                    <option value="rating">Highest Rated</option>
+                                    <option value="newest">Newest</option>
+                                    <option value="name">Name (A-Z)</option>
+                                </select>
+                                <label class="filter-checkbox">
+                                    <input type="checkbox" id="store-verified-only" checked>
+                                    <span>✓ Verified Only</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="store-addons-grid" class="store-addons-grid">
+                            <p class="empty-message">Loading add-on store...</p>
+                        </div>
                     </div>
                 </section>
 

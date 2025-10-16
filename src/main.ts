@@ -5,6 +5,7 @@ import { createPlayer } from './player';
 import { PlaylistManager } from './playlists';
 import { externalPlayerManager } from './external-player';
 import { diagnosticsManager } from './diagnostics';
+import './addon-store'; // Addon store UI and functionality
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {

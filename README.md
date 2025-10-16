@@ -28,8 +28,10 @@ Discover • Watch • Organize
 ### 🎯 Core
 - 🔍 **Smart Search** - TMDB-powered content discovery
 - 📚 **Library Management** - Organize your collection
-- 🎥 **HLS Player** - Smooth video playback with quality selection
+- 🎥 **Advanced Player** - HLS & DASH streaming with quality selection
+- 📝 **Local Subtitles** - Load SRT/VTT files with sync controls
 - 🧩 **Addon System** - Extensible content sources
+- 🏪 **Addon Store** - Discover and install addons with one click
 - 📊 **Health Monitoring** - Real-time addon performance tracking
 - 🎨 **Modern UI** - Clean, responsive interface
 - 🔄 **Auto-Updates** - Secure, signed releases
@@ -168,7 +170,7 @@ The built application will be available in `src-tauri/target/release/bundle/`.
 **Frontend**  
 - TypeScript
 - Vite build system
-- HLS.js player
+- HLS.js + DASH.js player
 - Native CSS
 
 </td>
@@ -207,7 +209,15 @@ We welcome contributions! Here's how to get started:
 
 **✅ Phase 0 Complete** - Stabilization & Security  
 **✅ Phase 1 Complete** - TypeScript, HLS Player & Library Features  
-**📋 Phase 2 Planned** - Advanced Addon Protocol & Content Aggregation
+**✅ Phase 2 Complete** - Addon Protocol & Content Aggregation  
+**🚀 Phase 3 In Progress (60%)** - Distribution, DASH Player & Addon Store
+
+**Latest Phase 3 Features**:
+- ✅ DASH streaming support (MPEG-DASH protocol)
+- ✅ Local subtitle loading (SRT/VTT with sync controls)
+- ✅ Addon discovery store with search & filtering
+- ✅ Multi-platform build infrastructure
+- 📋 Code signing documentation ready
 
 See [EVOLUTION_ROADMAP.md](EVOLUTION_ROADMAP.md) for the complete roadmap.
 

@@ -163,3 +163,16 @@ export function detectSubtitleFormat(content: string): 'srt' | 'vtt' | 'unknown'
   }
   return 'unknown';
 }
+
+/**
+ * Adjust timestamps in VTT content by offset (in seconds)
+ */
+export function adjustTimestamps(vttContent: string, offsetSeconds: number): string {
+  const cues = parseVTT(vttContent);
+  const adjustedCues = cues.map(cue => ({
+    start: Math.max(0, cue.start + offsetSeconds),
+    end: Math.max(0, cue.end + offsetSeconds),
+    text: cue.text,
+  }));
+  return convertCuesToVTT(adjustedCues);
+}

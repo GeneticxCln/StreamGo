@@ -3,7 +3,7 @@
 type HlsType = typeof import('hls.js').default;
 import { DashPlayer } from './dash-player';
 import { detectStreamFormat } from './stream-format-detector';
-import { parseSubtitle, convertSrtToVtt, adjustTimestamps } from './subtitle-parser';
+import { convertSRTtoVTT, adjustTimestamps } from './subtitle-parser';
 import { showToast } from './ui-utils';
 
 
@@ -24,6 +24,7 @@ export class VideoPlayer {
     private localSubtitleBlobs: string[] = [];
     private subtitleOffset: number = 0; // in seconds
     private originalSubtitleContent: Map<string, string> = new Map(); // Map<track.src, originalVttContent>
+    private trackElementMap: Map<TextTrack, HTMLTrackElement> = new Map(); // Map TextTrack to HTMLTrackElement
 
     constructor(options: PlayerOptions) {
         this.container = options.container;
@@ -322,7 +323,7 @@ export class VideoPlayer {
                 let vttContent = content;
 
                 if (file.name.endsWith('.srt')) {
-                    vttContent = convertSrtToVtt(content);
+                    vttContent = convertSRTtoVTT(content);
                 }
 
                 const trackLabel = file.name.replace(/\.(srt|vtt)$/, '');
@@ -539,6 +540,14 @@ export class VideoPlayer {
 
         this.video.appendChild(track);
 
+        // Map the TextTrack to the HTMLTrackElement once loaded
+        track.addEventListener('load', () => {
+            const textTrack = track.track;
+            if (textTrack) {
+                this.trackElementMap.set(textTrack, track);
+            }
+        });
+
         // Enable the newly added track automatically
         const newTrackIndex = this.getSubtitleTracks().length - 1;
         this.enableSubtitle(newTrackIndex);
@@ -551,6 +560,7 @@ export class VideoPlayer {
         this.localSubtitleBlobs.forEach(url => URL.revokeObjectURL(url));
         this.localSubtitleBlobs = [];
         this.originalSubtitleContent.clear();
+        this.trackElementMap.clear();
         this.subtitleOffset = 0;
         const offsetDisplay = document.getElementById('subtitle-sync-offset');
         if (offsetDisplay) offsetDisplay.textContent = '0.0s';
@@ -597,26 +607,30 @@ export class VideoPlayer {
     private applySubtitleOffset(): void {
         const tracks = this.getSubtitleTracks();
         for (const track of tracks) {
-            if (track.label && track.mode === 'showing' && this.originalSubtitleContent.has(track.src)) {
-                const originalContent = this.originalSubtitleContent.get(track.src);
-                if (!originalContent) continue;
+            const trackElement = this.trackElementMap.get(track);
+            if (!trackElement || !track.label || track.mode !== 'showing') continue;
+            
+            const currentSrc = trackElement.src;
+            if (!this.originalSubtitleContent.has(currentSrc)) continue;
+            
+            const originalContent = this.originalSubtitleContent.get(currentSrc);
+            if (!originalContent) continue;
 
-                // Adjust timestamps
-                const adjustedContent = adjustTimestamps(originalContent, this.subtitleOffset);
+            // Adjust timestamps
+            const adjustedContent = adjustTimestamps(originalContent, this.subtitleOffset);
 
-                // Create a new blob and update the track src
-                const newBlob = new Blob([adjustedContent], { type: 'text/vtt' });
-                const newUrl = URL.createObjectURL(newBlob);
+            // Create a new blob and update the track src
+            const newBlob = new Blob([adjustedContent], { type: 'text/vtt' });
+            const newUrl = URL.createObjectURL(newBlob);
 
-                // Revoke the old URL and update references
-                URL.revokeObjectURL(track.src);
-                const oldUrlIndex = this.localSubtitleBlobs.indexOf(track.src);
-                if (oldUrlIndex > -1) this.localSubtitleBlobs.splice(oldUrlIndex, 1);
-                this.localSubtitleBlobs.push(newUrl);
-                this.originalSubtitleContent.set(newUrl, originalContent); // Keep original content mapped to new URL
-                this.originalSubtitleContent.delete(track.src);
-                track.src = newUrl;
-            }
+            // Revoke the old URL and update references
+            URL.revokeObjectURL(currentSrc);
+            const oldUrlIndex = this.localSubtitleBlobs.indexOf(currentSrc);
+            if (oldUrlIndex > -1) this.localSubtitleBlobs.splice(oldUrlIndex, 1);
+            this.localSubtitleBlobs.push(newUrl);
+            this.originalSubtitleContent.set(newUrl, originalContent); // Keep original content mapped to new URL
+            this.originalSubtitleContent.delete(currentSrc);
+            trackElement.src = newUrl;
         }
     }
 

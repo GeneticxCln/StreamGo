@@ -64,8 +64,8 @@ pub struct AddonManifest {
     pub name: String,
     pub version: String,
     pub description: String,
-    pub resources: Vec<String>,
-    pub types: Vec<String>,
+    pub resources: Vec<String>, // Stored as strings for database compatibility
+    pub types: Vec<String>,    // Stored as strings for database compatibility
     pub catalogs: Vec<Catalog>,
 }
 
@@ -98,6 +98,10 @@ pub struct UserPreferences {
     pub theme: String,
     #[serde(default = "default_language")]
     pub language: String,
+
+    // Integrations / API keys
+    #[serde(default)]
+    pub tmdb_api_key: Option<String>,
 
     // Video Settings
     #[serde(default = "default_quality")]
@@ -177,24 +181,60 @@ fn default_version() -> u32 {
 fn default_true() -> bool {
     true
 }
-fn default_bool_true() -> bool { true }
-fn default_bool_false() -> bool { false }
-fn default_subtitle_lang() -> String { "en".to_string() }
-fn default_language() -> String { "en".to_string() }
-fn default_theme() -> String { "auto".to_string() }
-fn default_playback_speed() -> f32 { 1.0 }
-fn default_volume() -> f32 { 0.8 }
-fn default_priority() -> i32 { 0 }
-fn default_quality() -> String { "auto".to_string() }
-fn default_video_codec() -> String { "auto".to_string() }
-fn default_max_bitrate() -> String { "auto".to_string() }
-fn default_audio_codec() -> String { "auto".to_string() }
-fn default_audio_channels() -> String { "auto".to_string() }
-fn default_subtitle_size() -> String { "medium".to_string() }
-fn default_buffer_size() -> String { "medium".to_string() }
-fn default_torrent_connections() -> String { "100".to_string() }
-fn default_cache_size() -> String { "1024".to_string() }
-fn default_player_engine() -> String { "auto".to_string() }
+fn default_bool_true() -> bool {
+    true
+}
+fn default_bool_false() -> bool {
+    false
+}
+fn default_subtitle_lang() -> String {
+    "en".to_string()
+}
+fn default_language() -> String {
+    "en".to_string()
+}
+fn default_theme() -> String {
+    "auto".to_string()
+}
+fn default_playback_speed() -> f32 {
+    1.0
+}
+fn default_volume() -> f32 {
+    0.8
+}
+fn default_priority() -> i32 {
+    0
+}
+fn default_quality() -> String {
+    "auto".to_string()
+}
+fn default_video_codec() -> String {
+    "auto".to_string()
+}
+fn default_max_bitrate() -> String {
+    "auto".to_string()
+}
+fn default_audio_codec() -> String {
+    "auto".to_string()
+}
+fn default_audio_channels() -> String {
+    "auto".to_string()
+}
+fn default_subtitle_size() -> String {
+    "medium".to_string()
+}
+fn default_buffer_size() -> String {
+    "medium".to_string()
+}
+fn default_torrent_connections() -> String {
+    "100".to_string()
+}
+fn default_cache_size() -> String {
+    "1024".to_string()
+}
+fn default_player_engine() -> String {
+    "auto".to_string()
+}
 
 impl Default for UserPreferences {
     fn default() -> Self {
@@ -203,6 +243,7 @@ impl Default for UserPreferences {
             version: 1,
             theme: default_theme(),
             language: default_language(),
+            tmdb_api_key: None,
             // Video
             quality: default_quality(),
             default_quality: default_quality(),

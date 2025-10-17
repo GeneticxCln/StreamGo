@@ -1,5 +1,5 @@
 // Toast and Modal Utilities for StreamGo
-import { escapeHtml } from './utils';
+import { escapeHtml } from './utils/security';
 
 type ToastType = 'info' | 'success' | 'error' | 'warning';
 

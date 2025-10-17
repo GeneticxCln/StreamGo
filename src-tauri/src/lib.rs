@@ -67,7 +67,23 @@ async fn search_content(
     query: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<MediaItem>, String> {
-    // Integrate with TMDB with caching
+    // Load TMDB API key from user preferences if available, then call TMDB
+    {
+        let db = state.inner().db.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let db = db.lock().map_err(|e| e.to_string())?;
+            if let Ok(Some(profile)) = db.get_user_profile("default_user") {
+                if let Some(key) = profile.preferences.tmdb_api_key {
+                    if !key.is_empty() {
+                        std::env::set_var("TMDB_API_KEY", key);
+                    }
+                }
+            }
+            Ok::<(), String>(())
+        })
+        .await;
+    }
+
     let cache = state.inner().cache.clone();
     api::search_movies_and_shows_cached(&query, Some(cache))
         .await
@@ -134,6 +150,10 @@ async fn list_catalogs(
     // Optional: sort by addon priority and then by name
     // Not strictly necessary; keep natural order for now
 
+    if result.is_empty() {
+        tracing::warn!("No catalogs available for media type: {}", media_type);
+    }
+
     Ok(result)
 }
 
@@ -170,19 +190,16 @@ async fn aggregate_catalogs(
     let addons = match addons_res {
         Ok(Ok(v)) if !v.is_empty() => v,
         Ok(Ok(_)) => {
-            tracing::warn!("No enabled addons available");
-            return Ok(serde_json::json!({
-                "items": [],
-                "sources": [],
-                "total_time_ms": 0
-            }));
+            tracing::error!("No enabled addons available for catalog browsing");
+            return Err("No working addons available. Please install addons from the Add-ons section.".to_string());
         }
         Ok(Err(e)) => {
-            tracing::warn!(error = %e, "Failed to load addons");
-            return Err(e);
+            tracing::error!(error = %e, "Failed to load addons for catalogs");
+            return Err(format!("Failed to load addons: {}", e));
         }
         Err(e) => {
-            return Err(format!("Task error loading addons: {}", e));
+            tracing::error!(error = %e, "Critical error loading addons for catalogs");
+            return Err(format!("Critical error loading addons: {}", e));
         }
     };
 
@@ -263,16 +280,16 @@ async fn get_stream_url(
     let addons = match addons_res {
         Ok(Ok(v)) if !v.is_empty() => v,
         Ok(Ok(_)) => {
-            tracing::warn!("No enabled addons available; falling back to default stream");
-            return Ok(FALLBACK_URL.to_string());
+            tracing::error!("No enabled addons available - StreamGo cannot provide content without working addons");
+            return Err("No working addons available. Please install addons from the Add-ons section.".to_string());
         }
         Ok(Err(e)) => {
-            tracing::warn!(error = %e, "Failed to load addons; falling back to default stream");
-            return Ok(FALLBACK_URL.to_string());
+            tracing::error!(error = %e, "Failed to load addons from database");
+            return Err(format!("Failed to load addons: {}. Please check addon installation.", e));
         }
         Err(e) => {
-            tracing::warn!(error = %e, "Task error loading addons; falling back to default stream");
-            return Ok(FALLBACK_URL.to_string());
+            tracing::error!(error = %e, "Critical error loading addons");
+            return Err(format!("Critical error loading addons: {}. Please restart the application.", e));
         }
     };
 
@@ -347,8 +364,11 @@ async fn get_streams(
 
     let addons = match addons_res {
         Ok(v) if !v.is_empty() => v,
-        Ok(_) => return Ok(vec![]),
-        Err(e) => return Err(e),
+        Ok(_) => {
+            tracing::warn!("No enabled addons available for subtitles");
+            return Err("No working addons available. Please install addons from the Add-ons section.".to_string());
+        }
+        Err(e) => return Err(format!("Failed to load addons: {}", e)),
     };
 
     let cache = state.inner().cache.clone();
@@ -408,8 +428,11 @@ async fn get_subtitles(
 
     let addons = match addons_res {
         Ok(v) if !v.is_empty() => v,
-        Ok(_) => return Ok(vec![]),
-        Err(e) => return Err(e),
+        Ok(_) => {
+            tracing::warn!("No enabled addons available for streams");
+            return Err("No working addons available. Please install addons from the Add-ons section.".to_string());
+        }
+        Err(e) => return Err(format!("Failed to load addons: {}", e)),
     };
 
     let media_type_effective = media_type.unwrap_or_else(|| "movie".to_string());
@@ -417,14 +440,23 @@ async fn get_subtitles(
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for addon in addons {
-        let base = addon.url.clone();
+        let base = if addon.url.ends_with("/manifest.json") {
+            addon.url.replace("/manifest.json", "")
+        } else if addon.url.ends_with("manifest.json") {
+            addon.url.replace("manifest.json", "")
+        } else {
+            addon.url.clone()
+        };
         let start = std::time::Instant::now();
         let mut success = false;
         let mut err_msg: Option<String> = None;
         let mut item_count: usize = 0;
 
         match AddonClient::new(base) {
-            Ok(client) => match client.get_subtitles(&media_type_effective, &content_id).await {
+            Ok(client) => match client
+                .get_subtitles(&media_type_effective, &content_id)
+                .await
+            {
                 Ok(response) => {
                     for s in response.subtitles.into_iter() {
                         if seen.insert(s.url.clone()) {
@@ -462,6 +494,125 @@ async fn get_subtitles(
     }
 
     Ok(subs)
+}
+
+#[tauri::command]
+async fn get_addon_meta(
+    content_id: String,
+    media_type: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    // Load enabled addons
+    let db = state.inner().db.clone();
+    let addons_res = tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let mut addons = db.get_addons().map_err(|e| e.to_string())?;
+        if addons.is_empty() {
+            let builtin = tokio::runtime::Handle::current()
+                .block_on(api::get_builtin_addons())
+                .map_err(|e| e.to_string())?;
+            for addon in &builtin {
+                db.save_addon(addon).map_err(|e| e.to_string())?;
+            }
+            addons = builtin;
+        }
+        // Filter enabled addons that provide "meta" resource
+        let enabled: Vec<Addon> = addons
+            .into_iter()
+            .filter(|a| {
+                a.enabled && a.manifest.resources.iter().any(|r| r == "meta")
+            })
+            .collect();
+        Ok::<Vec<Addon>, String>(enabled)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    let addons = match addons_res {
+        Ok(v) if !v.is_empty() => v,
+        Ok(_) => {
+            tracing::warn!("No enabled addons with meta resource available");
+            return Err("No addons with metadata support available. Please install metadata addons like Cinemeta.".to_string());
+        }
+        Err(e) => return Err(format!("Failed to load addons: {}", e)),
+    };
+
+    let media_type_effective = media_type.unwrap_or_else(|| "movie".to_string());
+    let mut aggregated_meta: Option<serde_json::Value> = None;
+
+    // Query each addon for meta and merge results (first successful wins)
+    for addon in addons {
+        let base = if addon.url.ends_with("/manifest.json") {
+            addon.url.replace("/manifest.json", "")
+        } else if addon.url.ends_with("manifest.json") {
+            addon.url.replace("manifest.json", "")
+        } else {
+            addon.url.clone()
+        };
+
+        let start = std::time::Instant::now();
+        let mut success = false;
+        let mut err_msg: Option<String> = None;
+
+        match AddonClient::new(base) {
+            Ok(client) => match client.get_meta(&media_type_effective, &content_id).await {
+                Ok(response) => {
+                    // Convert to JSON and use first successful response
+                    if let Ok(json) = serde_json::to_value(&response.meta) {
+                        aggregated_meta = Some(json);
+                        success = true;
+                        
+                        // Record health and return immediately on success
+                        let elapsed = start.elapsed().as_millis();
+                        let addon_id = addon.id.clone();
+                        let db_for_health = state.inner().db.clone();
+                        tokio::task::spawn_blocking(move || {
+                            if let Ok(db) = db_for_health.lock() {
+                                let _ = db.record_addon_health(
+                                    &addon_id,
+                                    elapsed,
+                                    true,
+                                    None,
+                                    1,
+                                    "meta",
+                                );
+                            }
+                        });
+                        
+                        break; // Stop at first successful meta response
+                    }
+                }
+                Err(e) => {
+                    err_msg = Some(e.to_string());
+                }
+            },
+            Err(e) => {
+                err_msg = Some(e.to_string());
+            }
+        }
+
+        // Record health for failed attempts
+        if !success {
+            let elapsed = start.elapsed().as_millis();
+            let addon_id = addon.id.clone();
+            let db_for_health = state.inner().db.clone();
+            let err_msg_clone = err_msg.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Ok(db) = db_for_health.lock() {
+                    let _ = db.record_addon_health(
+                        &addon_id,
+                        elapsed,
+                        false,
+                        err_msg_clone.as_deref(),
+                        0,
+                        "meta",
+                    );
+                }
+            });
+        }
+    }
+
+    aggregated_meta.ok_or_else(|| "No metadata found from any addon".to_string())
 }
 
 fn select_best_stream(streams: &[crate::addon_protocol::Stream]) -> Option<String> {
@@ -1194,6 +1345,60 @@ async fn get_addon_health(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
+#[tauri::command]
+async fn auto_disable_unhealthy_addons(
+    threshold: f64,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let db = state.inner().db.clone();
+    
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        
+        // Get health summaries
+        let health_summaries = db.get_all_addon_health_summaries()
+            .map_err(|e| e.to_string())?;
+        
+        // Get all addons
+        let addons = db.get_addons()
+            .map_err(|e| e.to_string())?;
+        
+        let mut disabled_addons = Vec::new();
+        
+        // Disable addons below threshold that are currently enabled
+        for addon in addons {
+            if !addon.enabled {
+                continue; // Already disabled
+            }
+            
+            // Find health score for this addon
+            if let Some(health) = health_summaries.iter().find(|h| h.addon_id == addon.id) {
+                if health.health_score < threshold {
+                    tracing::info!(
+                        addon_id = %addon.id,
+                        health_score = %health.health_score,
+                        threshold = %threshold,
+                        "Auto-disabling unhealthy addon"
+                    );
+                    
+                    // Disable the addon
+                    let mut disabled_addon = addon.clone();
+                    disabled_addon.enabled = false;
+                    db.save_addon(&disabled_addon)
+                        .map_err(|e| e.to_string())?;
+                    
+                    disabled_addons.push(addon.id);
+                }
+            }
+        }
+        
+        tracing::info!("Auto-disabled {} addons below health threshold {}", disabled_addons.len(), threshold);
+        Ok(disabled_addons)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Fix webkit2gtk 2.50.x explicit sync bug with Wayland compositors
@@ -1285,6 +1490,7 @@ pub fn run() {
             get_stream_url,
             get_streams,
             get_subtitles,
+            get_addon_meta,
             list_catalogs,
             aggregate_catalogs,
             install_addon,
@@ -1327,7 +1533,8 @@ pub fn run() {
             export_diagnostics_file,
             reset_performance_metrics,
             get_addon_health_summaries,
-            get_addon_health
+            get_addon_health,
+            auto_disable_unhealthy_addons
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

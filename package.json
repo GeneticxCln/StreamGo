@@ -9,8 +9,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "clean": "rimraf dist",
-    "lint": "eslint src/**/*.{js,ts}",
-    "lint:fix": "eslint src/**/*.{js,ts} --fix",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
     "type-check": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -23,18 +23,24 @@
   "devDependencies": {
     "@playwright/test": "^1.56.0",
     "@types/node": "^20.11.0",
+    "@types/webtorrent": "^0.110.1",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "eslint": "^8.56.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.3.3",
-    "vite": "^7.1.10"
+    "vite": "^7.1.10",
+    "vite-plugin-node-polyfills": "^0.24.0"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-process": "^2.3.0",
     "@tauri-apps/plugin-updater": "^2.4.0",
     "dashjs": "^4.5.0",
-    "hls.js": "^1.6.13"
+    "hls.js": "^1.6.13",
+    "webtorrent": "^2.8.4"
+  },
+  "overrides": {
+    "ip": "^2.0.1"
   }
 }

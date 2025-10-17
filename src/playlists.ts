@@ -1,6 +1,7 @@
 // Playlist Management Module
 import type { MediaItem, Playlist } from './types/tauri';
 import { invoke } from './utils';
+import { escapeHtml } from './utils/security';
 import { Toast, Modal } from './ui-utils';
 import { setupLazyLoading } from './utils/imageLazyLoad';
 
@@ -79,8 +80,8 @@ export class PlaylistManager {
                     </svg>
                 </div>
                 <div class="playlist-card-info">
-                    <h3 class="playlist-card-title">${this.escapeHtml(playlist.name)}</h3>
-                    ${playlist.description ? `<p class="playlist-card-description">${this.escapeHtml(playlist.description)}</p>` : ''}
+                    <h3 class="playlist-card-title">${escapeHtml(playlist.name)}</h3>
+                    ${playlist.description ? `<p class="playlist-card-description">${escapeHtml(playlist.description)}</p>` : ''}
                     <div class="playlist-card-meta">
                         <span>${playlist.item_count} item${playlist.item_count !== 1 ? 's' : ''}</span>
                         <span>•</span>
@@ -274,11 +275,11 @@ export class PlaylistManager {
                 <img 
                   data-src="${posterUrl}"
                   src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 90'%3E%3Crect fill='%232a2a2a' width='60' height='90'/%3E%3C/svg%3E"
-                  alt="${this.escapeHtml(item.title)}"
+                  alt="${escapeHtml(item.title)}"
                   class="playlist-item-poster lazy-img"
                 >
                 <div class="playlist-item-info">
-                    <div class="playlist-item-title">${this.escapeHtml(item.title)}${year}</div>
+                    <div class="playlist-item-title">${escapeHtml(item.title)}${year}</div>
                     <div class="playlist-item-meta">
                         ${item.genre.slice(0, 3).join(', ')}
                     </div>
@@ -560,11 +561,6 @@ export class PlaylistManager {
         }
     }
 
-    private escapeHtml(text: string): string {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 }
 
 // Export global instance

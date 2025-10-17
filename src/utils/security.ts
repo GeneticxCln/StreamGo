@@ -6,10 +6,17 @@
 
 /**
  * Escapes HTML special characters to prevent XSS attacks
- * @param unsafe - The untrusted string to escape
+ * Production-ready implementation with comprehensive character escaping
+ * @param unsafe - The untrusted string to escape (handles null/undefined)
  * @returns The escaped string safe for insertion into HTML
  */
-export function escapeHtml(unsafe: string): string {
+export function escapeHtml(unsafe: string | null | undefined): string {
+  // Handle null, undefined, or non-string values
+  if (typeof unsafe !== 'string') {
+    return '';
+  }
+  
+  // Comprehensive escape map including forward slash to prevent script tag injection
   const escapeMap: Record<string, string> = {
     '&': '&amp;',
     '<': '&lt;',

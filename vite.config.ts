@@ -1,8 +1,20 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  plugins: [
+    nodePolyfills({
+      // Enable polyfills for Node.js built-ins
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+      protocolImports: true,
+    }),
+  ],
   // Set the root directory to src where index.html is located
   root: 'src',
   // Prevent vite from obscuring rust errors

@@ -1,8 +1,8 @@
+use crate::addon_protocol::{AddonClient, ResourceType};
 use crate::cache::{ttl, CacheManager};
 use crate::models::*;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-use crate::addon_protocol::{AddonClient, ResourceType, AddonMediaType};
 use std::sync::{Arc, Mutex};
 
 // Mock TMDB API integration (in a real app, you'd use actual API keys)
@@ -183,10 +183,13 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
     log::info!("Installing addon from: {}", addon_url);
 
     // Normalize to base URL (strip trailing /manifest.json if provided)
-    let mut base = addon_url.trim_end_matches('/').to_string();
-    if base.ends_with("/manifest.json") {
-        base.truncate(base.len() - "/manifest.json".len());
-    }
+    let base = if addon_url.ends_with("/manifest.json") {
+        addon_url.trim_end_matches("/manifest.json").to_string()
+    } else if addon_url.ends_with("manifest.json") {
+        addon_url.trim_end_matches("manifest.json").trim_end_matches('/').to_string()
+    } else {
+        addon_url.trim_end_matches('/').to_string()
+    };
 
     // Validate base URL format and scheme
     let parsed_url = url::Url::parse(&base).map_err(|e| anyhow!("Invalid addon URL: {}", e))?;
@@ -211,30 +214,21 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
             ResourceType::Stream => "stream".to_string(),
             ResourceType::Meta => "meta".to_string(),
             ResourceType::Subtitles => "subtitles".to_string(),
+            ResourceType::AddonCatalog => "addon_catalog".to_string(),
         })
         .collect();
 
     let types: Vec<String> = p_manifest
         .types
         .iter()
-        .map(|t| match t {
-            AddonMediaType::Movie => "movie".to_string(),
-            AddonMediaType::Series => "series".to_string(),
-            AddonMediaType::Channel => "channel".to_string(),
-            AddonMediaType::TV => "tv".to_string(),
-        })
+        .map(|t| t.0.clone())
         .collect();
 
     let catalogs: Vec<Catalog> = p_manifest
         .catalogs
         .iter()
         .map(|c| Catalog {
-            catalog_type: match c.media_type {
-                AddonMediaType::Movie => "movie".to_string(),
-                AddonMediaType::Series => "series".to_string(),
-                AddonMediaType::Channel => "channel".to_string(),
-                AddonMediaType::TV => "tv".to_string(),
-            },
+            catalog_type: c.media_type.0.clone(),
             id: c.id.clone(),
             name: c.name.clone(),
             genres: None,
@@ -262,6 +256,11 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
         AddonType::ContentProvider
     };
 
+    // Ensure URL is not empty
+    if base.is_empty() {
+        return Err(anyhow!("Addon URL cannot be empty"));
+    }
+
     let addon = Addon {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
@@ -284,84 +283,43 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
     Ok(addon)
 }
 
-
-// This function is no longer needed - moved to lib.rs to use DB
-// Keeping stub for backwards compatibility during refactor
+/// Get real working Stremio community addons
+/// These are actual production addons with real manifests
 pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
-    let mock_addons = vec![
-        Addon {
-            id: "tmdb_addon".to_string(),
-            name: "TMDB Provider".to_string(),
-            version: "1.0.0".to_string(),
-            description: "The Movie Database metadata provider".to_string(),
-            author: "StreamGo Team".to_string(),
-            url: "built-in".to_string(),
-            enabled: false,
-            addon_type: AddonType::MetadataProvider,
-            manifest: AddonManifest {
-                id: "tmdb_addon".to_string(),
-                name: "TMDB Provider".to_string(),
-                version: "1.0.0".to_string(),
-                description: "The Movie Database metadata provider".to_string(),
-                resources: vec!["meta".to_string()],
-                types: vec!["movie".to_string(), "series".to_string()],
-                catalogs: vec![],
-            },
-            priority: 10, // High priority for official TMDB
-        },
-        Addon {
-            id: "youtube_addon".to_string(),
-            name: "YouTube Addon".to_string(),
-            version: "1.0.0".to_string(),
-            description: "Stream content from YouTube".to_string(),
-            author: "StreamGo Team".to_string(),
-            url: "built-in".to_string(),
-            enabled: false,
-            addon_type: AddonType::ContentProvider,
-            manifest: AddonManifest {
-                id: "youtube_addon".to_string(),
-                name: "YouTube Addon".to_string(),
-                version: "1.0.0".to_string(),
-                description: "Stream content from YouTube".to_string(),
-                resources: vec!["catalog".to_string(), "stream".to_string()],
-                types: vec!["movie".to_string(), "series".to_string()],
-                catalogs: vec![Catalog {
-                    catalog_type: "movie".to_string(),
-                    id: "yt_movies".to_string(),
-                    name: "YouTube Movies".to_string(),
-                    genres: None,
-                }],
-            },
-            priority: 5, // Medium priority
-        },
-        Addon {
-            id: "local_files".to_string(),
-            name: "Local Files".to_string(),
-            version: "1.0.0".to_string(),
-            description: "Play local video files".to_string(),
-            author: "StreamGo Team".to_string(),
-            url: "built-in".to_string(),
-            enabled: false,
-            addon_type: AddonType::ContentProvider,
-            manifest: AddonManifest {
-                id: "local_files".to_string(),
-                name: "Local Files".to_string(),
-                version: "1.0.0".to_string(),
-                description: "Play local video files".to_string(),
-                resources: vec!["catalog".to_string(), "stream".to_string()],
-                types: vec!["movie".to_string(), "series".to_string()],
-                catalogs: vec![Catalog {
-                    catalog_type: "movie".to_string(),
-                    id: "local_movies".to_string(),
-                    name: "Local Movies".to_string(),
-                    genres: None,
-                }],
-            },
-            priority: 0, // Lower priority
-        },
+    log::info!("Fetching real Stremio community addons...");
+    
+    // Real, working Stremio community addon URLs
+    let addon_urls = vec![
+        "https://v3-cinemeta.strem.io/manifest.json",  // Official TMDB metadata
+        "https://opensubtitles.strem.io/manifest.json", // OpenSubtitles
+        "https://watchhub.strem.io/manifest.json",      // WatchHub aggregator
     ];
-
-    Ok(mock_addons)
+    
+    let mut addons = Vec::new();
+    let mut priority = 10; // Start with high priority
+    
+    for url in addon_urls {
+        match install_addon(url).await {
+            Ok(mut addon) => {
+                addon.priority = priority;
+                priority -= 1; // Decrease priority for next addon
+                log::info!("✓ Installed: {} v{}", addon.name, addon.version);
+                addons.push(addon);
+            }
+            Err(e) => {
+                log::warn!("✗ Failed to install {}: {}", url, e);
+                // Continue with other addons even if one fails
+            }
+        }
+    }
+    
+    if addons.is_empty() {
+        log::error!("Failed to install any built-in addons");
+        return Err(anyhow!("No built-in addons could be installed. Check network connectivity."));
+    }
+    
+    log::info!("Successfully installed {} built-in addons", addons.len());
+    Ok(addons)
 }
 
 // Real TMDB integration function (commented out for demo)

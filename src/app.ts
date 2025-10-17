@@ -1,6 +1,7 @@
 // StreamGo App - Main Application Logic
 import type { MediaItem, UserPreferences } from './types/tauri';
-import { invoke, escapeHtml } from './utils';
+import { invoke } from './utils';
+import { escapeHtml } from './utils/security';
 import { Toast, Modal } from './ui-utils';
 import { setupLazyLoading } from './utils/imageLazyLoad';
 
@@ -41,6 +42,8 @@ export class StreamGoApp {
         this.loadLibrary();
         this.loadAddons();
         this.loadContinueWatching();
+        // Auto-start with a catalog like Stremio (Movies -> first catalog)
+        setTimeout(() => this.autoStartCatalog(), 300);
     }
 
     initializeTheme() {
@@ -241,9 +244,35 @@ export class StreamGoApp {
             if (loadMoreBtn) loadMoreBtn.style.display = 'none';
         } catch (err) {
             console.error('Failed to load catalogs:', err);
-            if (grid) grid.innerHTML = this.renderErrorState('Unable to load catalogs', 'Try again or select another type.');
+            const errorMessage = String(err);
+            let userMessage = 'Unable to load catalogs';
+
+            if (errorMessage.includes('No working addons available')) {
+                userMessage = 'No content sources available';
+            } else if (errorMessage.includes('Failed to load addons')) {
+                userMessage = 'Content sources not loading';
+            }
+
+            if (grid) grid.innerHTML = this.renderErrorState(userMessage, 'Please install addons from the Add-ons section first.');
         } finally {
             if (loading) loading.style.display = 'none';
+        }
+    }
+
+    private async autoStartCatalog() {
+        try {
+            const catalogs = await invoke<any[]>('list_catalogs', { media_type: 'movie' });
+            if (Array.isArray(catalogs) && catalogs.length > 0) {
+                this.discover.mediaType = 'movie';
+                this.discover.catalogId = catalogs[0].id;
+                // Ensure Discover UI reflects selection
+                const catalogSelect = document.getElementById('discover-catalog-select') as HTMLSelectElement | null;
+                if (catalogSelect) catalogSelect.value = catalogs[0].id;
+                this.showSection('discover');
+                await this.loadDiscoverItems(true);
+            }
+        } catch (e) {
+            console.warn('Auto-start catalog failed:', e);
         }
     }
 
@@ -252,7 +281,13 @@ export class StreamGoApp {
         const loading = document.getElementById('discover-loading');
         const loadMoreBtn = document.getElementById('discover-load-more') as HTMLButtonElement | null;
         if (!this.discover.catalogId) {
-            if (grid) grid.innerHTML = '<p class="empty-message">Select a catalog to browse content</p>';
+            if (grid) {
+                if (this.discover.catalogs.length === 0) {
+                    grid.innerHTML = '<p class="empty-message">No content sources available. Please install addons from the Add-ons section first.</p>';
+                } else {
+                    grid.innerHTML = '<p class="empty-message">Select a catalog to browse content</p>';
+                }
+            }
             if (loadMoreBtn) loadMoreBtn.style.display = 'none';
             return;
         }
@@ -279,7 +314,16 @@ export class StreamGoApp {
             if (loadMoreBtn) loadMoreBtn.style.display = this.discover.hasMore ? 'inline-flex' : 'none';
         } catch (err) {
             console.error('Failed to load catalog items:', err);
-            if (grid) grid.innerHTML = this.renderErrorState('Unable to load catalog items', 'Please try again later.');
+            const errorMessage = String(err);
+            let userMessage = 'Unable to load catalog items';
+
+            if (errorMessage.includes('No working addons available')) {
+                userMessage = 'No content sources available';
+            } else if (errorMessage.includes('Failed to load addons')) {
+                userMessage = 'Content sources not loading';
+            }
+
+            if (grid) grid.innerHTML = this.renderErrorState(userMessage, 'Please install addons from the Add-ons section first.');
             if (loadMoreBtn) loadMoreBtn.style.display = 'none';
         } finally {
             if (loading) loading.style.display = 'none';
@@ -371,12 +415,31 @@ export class StreamGoApp {
 
         } catch (err) {
             console.error('Search error:', err);
+            const errorMessage = String(err);
+            let userMessage = 'Search unavailable';
+            let userDescription = 'We couldn\'t complete your search.';
+
+            if (errorMessage.includes('TMDB_API_KEY')) {
+                userMessage = 'TMDB API key not configured';
+                userDescription = 'Please add your TMDB API key to the .env file to enable search functionality.';
+            } else if (errorMessage.includes('No working addons available')) {
+                userMessage = 'No content sources available';
+                userDescription = 'Please install addons from the Add-ons section first.';
+            } else if (errorMessage.includes('network') || errorMessage.includes('connection')) {
+                userDescription = 'Please check your internet connection and try again.';
+            }
+
             resultsEl.innerHTML = this.renderErrorState(
-                'Unable to Search',
-                'We couldn\'t complete your search. This might be due to a network issue or the service being unavailable.',
+                userMessage,
+                userDescription,
                 `app.performSearch('${escapeHtml(query)}')`
             );
-            Toast.error('Search failed. Please check your connection and try again.');
+
+            if (errorMessage.includes('TMDB_API_KEY')) {
+                Toast.error('TMDB API key not configured. Please add your API key to the .env file.');
+            } else {
+                Toast.error('Search failed. Please check your connection and try again.');
+            }
         }
     }
 
@@ -474,6 +537,7 @@ export class StreamGoApp {
             addonsEl.innerHTML = '<div class="loading-spinner">Loading add-ons...</div>';
 
             const addons = await invoke<any[]>('get_addons');
+            console.log('Addons from backend:', JSON.stringify(addons, null, 2));
 
             if (addons.length === 0) {
                 addonsEl.innerHTML = this.renderEmptyState(
@@ -677,7 +741,7 @@ export class StreamGoApp {
 
         try {
             Toast.info('Installing add-on...');
-            const addonId = await invoke<string>('install_addon', { addon_url: url });
+            const addonId = await invoke<string>('install_addon', { addon_url: url, addonUrl: url });
             Toast.success(`Add-on installed successfully! ID: ${addonId}`);
             await this.loadAddons();
         } catch (err) {
@@ -1086,25 +1150,25 @@ export class StreamGoApp {
                         </div>
                     ` : ''}
                     <div class="detail-actions">
-                        <button class="play-btn" onclick="app.playMedia('${escapedId}')">
+                        <button class="play-btn" id="detail-play-btn" data-id="${escapedId}">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M8 5v14l11-7z"/>
                             </svg>
                             Play Now
                         </button>
-                        <button class="add-btn" onclick="app.addToLibrary(app.currentMedia)">
+                        <button class="add-btn" id="detail-add-library-btn">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
                             </svg>
                             Library
                         </button>
-                        <button class="add-btn" onclick="app.addToWatchlist('${escapedId}')">
+                        <button class="add-btn" id="detail-add-watchlist-btn" data-id="${escapedId}">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/>
                             </svg>
                             Watchlist
                         </button>
-                        <button class="favorite-btn" onclick="app.addToFavorites('${escapedId}')">
+                        <button class="favorite-btn" id="detail-favorite-btn" data-id="${escapedId}">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
                             </svg>
@@ -1114,7 +1178,10 @@ export class StreamGoApp {
                 </div>
             `;
         }
-
+        
+        // Attach action listeners for detail buttons
+        this.attachDetailActionListeners();
+        
         // Append streams section and load streams
         try {
             const dc = document.getElementById('detail-content');
@@ -1140,6 +1207,28 @@ export class StreamGoApp {
         }
         // After injecting detail images, initialize lazy loading for them
         setupLazyLoading('#detail-hero img[data-src], #detail-content img[data-src]');
+    }
+
+    private attachDetailActionListeners(): void {
+        const playBtn = document.getElementById('detail-play-btn');
+        playBtn?.addEventListener('click', () => {
+            const id = (playBtn as HTMLElement).getAttribute('data-id') || this.currentMedia?.id || '';
+            if (id) this.playMedia(id);
+        });
+        const addLibBtn = document.getElementById('detail-add-library-btn');
+        addLibBtn?.addEventListener('click', () => {
+            if (this.currentMedia) this.addToLibrary(this.currentMedia);
+        });
+        const addWatchBtn = document.getElementById('detail-add-watchlist-btn');
+        addWatchBtn?.addEventListener('click', () => {
+            const id = (addWatchBtn as HTMLElement).getAttribute('data-id') || this.currentMedia?.id || '';
+            if (id) this.addToWatchlist(id);
+        });
+        const favBtn = document.getElementById('detail-favorite-btn');
+        favBtn?.addEventListener('click', () => {
+            const id = (favBtn as HTMLElement).getAttribute('data-id') || this.currentMedia?.id || '';
+            if (id) this.addToFavorites(id);
+        });
     }
 
     async playMedia(mediaId: string): Promise<void> {
@@ -1178,7 +1267,18 @@ export class StreamGoApp {
             }
         } catch (err) {
             console.error('Error getting stream:', err);
-            Toast.error('Unable to start playback. The stream might be unavailable.');
+
+            // Provide specific error messages based on error type
+            const errorMessage = String(err);
+            if (errorMessage.includes('No working addons available')) {
+                Toast.error('No content sources available. Please install addons from the Add-ons section first.');
+            } else if (errorMessage.includes('Failed to load addons')) {
+                Toast.error('Content sources not loading. Please check your internet connection and try again.');
+            } else if (errorMessage.includes('TMDB_API_KEY')) {
+                Toast.error('TMDB API key not configured. Please add your API key to the .env file.');
+            } else {
+                Toast.error(`Playback failed: ${errorMessage}`);
+            }
         }
     }
 
@@ -1385,7 +1485,16 @@ export class StreamGoApp {
             });
         } catch (err) {
             console.error('Failed to load streams:', err);
-            listEl.innerHTML = `<div class="error-message">Failed to load streams.</div>`;
+            const errorMessage = String(err);
+            let userMessage = 'Failed to load streams';
+
+            if (errorMessage.includes('No working addons available')) {
+                userMessage = 'No content sources available';
+            } else if (errorMessage.includes('Failed to load addons')) {
+                userMessage = 'Content sources not loading';
+            }
+
+            listEl.innerHTML = `<div class="error-message">${userMessage}. Please install addons from the Add-ons section first.</div>`;
         }
     }
 
@@ -1477,6 +1586,12 @@ export class StreamGoApp {
         } catch (err) {
             console.warn('Trending catalogs not available:', err);
             if (trendingSection) trendingSection.style.display = 'none';
+
+            // Show helpful message if it's due to missing addons
+            const errorMessage = String(err);
+            if (errorMessage.includes('No working addons available') || errorMessage.includes('Failed to load addons')) {
+                console.warn('Trending not available due to missing addons - this is expected until addons are installed');
+            }
         }
     }
 
@@ -1507,6 +1622,12 @@ export class StreamGoApp {
         } catch (err) {
             console.warn('Popular catalogs not available:', err);
             if (popularSection) popularSection.style.display = 'none';
+
+            // Show helpful message if it's due to missing addons
+            const errorMessage = String(err);
+            if (errorMessage.includes('No working addons available') || errorMessage.includes('Failed to load addons')) {
+                console.warn('Popular content not available due to missing addons - this is expected until addons are installed');
+            }
         }
     }
 

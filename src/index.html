@@ -77,7 +77,7 @@
                 </li>
             </ul>
             <div class="sidebar-footer">
-                <button id="theme-toggle" class="nav-item icon-btn-sidebar" title="Toggle theme" onclick="app.toggleTheme()">
+                <button id="theme-toggle" class="nav-item icon-btn-sidebar" title="Toggle theme">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
                     </svg>
@@ -106,7 +106,7 @@
                         <div class="hero-content">
                             <h2 class="hero-title">Welcome to StreamGo</h2>
                             <p class="hero-description">Your modern media center for movies and TV shows. Search for content, build your library, and discover new favorites.</p>
-                            <button class="btn btn-primary" onclick="app.showSection('search')">Start Searching</button>
+                            <button class="btn btn-primary" id="start-searching-btn">Start Searching</button>
                         </div>
                     </div>
                     
@@ -253,18 +253,89 @@
                 <!-- Add-ons Section -->
                 <section id="addons-section" class="content-section">
                     <div class="addons-header">
-                        <h2>Installed Add-ons</h2>
-                        <button class="btn btn-primary" onclick="app.installAddon()">Install Add-on</button>
+                        <h2>Add-ons</h2>
+                        <div class="tabs">
+                            <button class="tab-btn active" data-tab="installed">Installed</button>
+                            <button class="tab-btn" data-tab="store">Discover Store</button>
+                        </div>
                     </div>
-                    <div id="addons-list" class="addons-grid">
-                        <p class="empty-message">Loading add-ons...</p>
+
+                    <!-- Installed Tab -->
+                    <div id="installed-addons-tab" class="tab-content active">
+                        <div id="addons-list" class="addons-grid">
+                            <p class="empty-message">Loading add-ons...</p>
+                        </div>
+                    </div>
+
+                    <!-- Store Tab -->
+                    <div id="store-addons-tab" class="tab-content" style="display: none;">
+                        <!-- Install from URL Section -->
+                        <div class="manifest-url-section">
+                            <h3>📦 Install from Manifest URL</h3>
+                            <p class="section-description">Install addons directly from their manifest URL (Stremio-compatible)</p>
+                            <div class="manifest-url-input-group">
+                                <input 
+                                    type="url" 
+                                    id="manifest-url-input" 
+                                    class="manifest-url-input" 
+                                    placeholder="https://tmdb-addon.strem.io/manifest.json"
+                                    aria-label="Addon manifest URL"
+                                />
+                                <button id="preview-manifest-btn" class="btn btn-secondary">Preview</button>
+                                <button id="install-from-url-btn" class="btn btn-primary">Install</button>
+                            </div>
+                            <div class="url-examples">
+                                <p class="example-title">Quick Install:</p>
+<button class="url-example-btn" data-url="https://v3-cinemeta.strem.io/manifest.json">Cinemeta (TMDB)</button>
+                                <button class="url-example-btn" data-url="https://watchhub.strem.io/manifest.json">WatchHub</button>
+                                <button class="url-example-btn" data-url="https://opensubtitles.strem.io/manifest.json">OpenSubtitles</button>
+                            </div>
+                        </div>
+
+                        <!-- Store Header -->
+                        <div class="store-header">
+                            <h3>🏪 Community Addons</h3>
+                            <div class="store-search-bar">
+                                <input type="text" id="store-search-input" class="store-search-input" placeholder="Search addons..." />
+                                <button id="store-search-btn" class="btn btn-secondary">Search</button>
+                            </div>
+                        </div>
+
+                        <!-- Store Filters -->
+                        <div class="store-filters">
+                            <select id="store-category-filter" class="store-filter-select">
+                                <option value="all">All Categories</option>
+                                <option value="movies">Movies</option>
+                                <option value="series">TV Series</option>
+                                <option value="anime">Anime</option>
+                                <option value="documentaries">Documentaries</option>
+                                <option value="subtitles">Subtitles</option>
+                                <option value="general">General</option>
+                            </select>
+                            <select id="store-sort-filter" class="store-filter-select">
+                                <option value="featured">Featured</option>
+                                <option value="popular">Most Popular</option>
+                                <option value="rating">Highest Rated</option>
+                                <option value="newest">Newest</option>
+                                <option value="name">Name (A-Z)</option>
+                            </select>
+                            <label class="store-filter-checkbox">
+                                <input type="checkbox" id="store-verified-only" />
+                                <span>Verified only</span>
+                            </label>
+                        </div>
+
+                        <!-- Store Grid -->
+                        <div id="store-addons-grid" class="store-grid">
+                            <p class="empty-message">Loading store addons...</p>
+                        </div>
                     </div>
                 </section>
 
                 <!-- Media Detail Section -->
                 <section id="detail-section" class="content-section">
                     <div class="detail-container">
-                        <button class="back-btn" onclick="app.goBack()">
+                        <button class="back-btn" id="detail-back-btn">
                             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                                 <path d="M10 20L0 10L10 0L11.775 1.775L3.55 10L11.775 18.225L10 20Z"/>
                             </svg>
@@ -282,7 +353,7 @@
                         <!-- Video Player -->
                         <div id="video-player-container" class="video-player-container" style="display: none;">
                             <div class="player-header">
-                                <button class="close-player-btn" onclick="app.closePlayer()">
+                                <button class="close-player-btn" id="close-player-btn">
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                                         <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                                     </svg>
@@ -315,6 +386,39 @@
                         </div>
                     </div>
                 </section>
+
+                <!-- Catalog Browser Section -->
+                <section id="catalog-view" class="content-section" style="display: none;">
+                    <button id="catalog-back-btn" class="back-btn">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M10 20L0 10L10 0L11.775 1.775L3.55 10L11.775 18.225L10 20Z"/>
+                        </svg>
+                        Back to Addons
+                    </button>
+                    <div class="catalog-header">
+                        <h2 id="catalog-title">Catalog</h2>
+                    </div>
+                    <div id="catalog-grid" class="movie-grid">
+                        <p class="empty-message">Loading...</p>
+                    </div>
+                </section>
+
+                <!-- Stream Picker Modal -->
+                <div id="stream-picker-modal" class="modal" style="display: none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="stream-picker-title">Select Stream</h3>
+                            <button id="close-stream-picker" class="close-btn">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="stream-picker-list" class="stream-list">
+                            <!-- Streams will be listed here -->
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Settings Section -->
                 <section id="settings-section" class="content-section">
@@ -560,9 +664,9 @@
                         </div>
 
                         <div class="settings-actions">
-                            <button class="btn btn-primary" onclick="app.saveSettings()">💾 Save Settings</button>
-                            <button class="btn btn-secondary" onclick="app.resetSettings()">🔄 Reset to Defaults</button>
-                            <button class="btn btn-secondary" onclick="app.clearCache()">🗑️ Clear Cache</button>
+                            <button class="btn btn-primary" id="settings-save-btn">💾 Save Settings</button>
+                            <button class="btn btn-secondary" id="settings-reset-btn">🔄 Reset to Defaults</button>
+                            <button class="btn btn-secondary" id="settings-clear-cache-btn">🗑️ Clear Cache</button>
                         </div>
                     </div>
                 </section>

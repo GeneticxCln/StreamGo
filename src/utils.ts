@@ -17,18 +17,6 @@ export const invoke = <T>(cmd: string, args?: Record<string, unknown>): Promise<
   return tauriInvoke<T>(cmd, args);
 };
 
-/**
- * HTML sanitization utility
- */
-export const escapeHtml = (unsafe: string | null | undefined): string => {
-  if (typeof unsafe !== 'string') return '';
-  return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-};
 
 /**
  * Legacy wrapper for backward compatibility

@@ -31,6 +31,9 @@ export interface UserPreferences {
   language: string;
   notifications_enabled: boolean;
   auto_update: boolean;
+  
+  // Integrations / API keys
+  tmdb_api_key?: string;
   // Playback
   autoplay: boolean;
   quality: string;
@@ -110,6 +113,84 @@ export interface Subtitle {
   url: string;
   lang: string;
 }
+
+// Series and Episode Support
+export interface Episode {
+  id: string;           // Format: "series_id:season:episode" (e.g., "tt1234567:1:5")
+  title: string;
+  season: number;
+  episode: number;
+  thumbnail?: string;
+  overview?: string;
+  released?: string;    // Release date
+  runtime?: string;     // Duration in minutes
+}
+
+export interface MetaItem {
+  id: string;
+  type: string;         // "movie", "series", "channel", "tv"
+  name: string;
+  poster?: string;
+  posterShape?: string; // "poster" | "landscape" | "square"
+  background?: string;
+  logo?: string;
+  description?: string;
+  releaseInfo?: string;
+  runtime?: string;
+  genres?: string[];
+  director?: string[];
+  cast?: string[];
+  writer?: string[];
+  imdbRating?: number;
+  country?: string;
+  language?: string;
+  awards?: string;
+  website?: string;
+  trailers?: Trailer[];
+  videos?: Episode[];   // Episodes for series
+  links?: MetaLink[];
+}
+
+export interface Trailer {
+  source: string;       // e.g., "youtube:dQw4w9WgXcQ"
+  type: string;         // "Trailer", "Clip", etc.
+}
+
+export interface MetaLink {
+  name: string;
+  category: string;
+  url: string;
+}
+
+export interface SeriesMeta extends MetaItem {
+  episodes?: Episode[];
+  seasons?: number;
+}
+
+// Episode ID utilities (client-side)
+export const EpisodeId = {
+  parse(id: string): { seriesId: string; season: number; episode: number } | null {
+    const parts = id.split(':');
+    if (parts.length < 3) return null;
+    return {
+      seriesId: parts[0],
+      season: parseInt(parts[1]),
+      episode: parseInt(parts[2])
+    };
+  },
+  
+  build(seriesId: string, season: number, episode: number): string {
+    return `${seriesId}:${season}:${episode}`;
+  },
+  
+  isEpisodeId(id: string): boolean {
+    return id.split(':').length >= 3;
+  },
+  
+  getSeriesId(id: string): string | null {
+    return id.split(':')[0] || null;
+  }
+};
 
 export interface Catalog {
   catalog_type: string;
@@ -205,6 +286,7 @@ export interface TauriCommands {
   get_stream_url: { args: { content_id: string; media_type?: string }; return: string };
   get_streams: { args: { content_id: string; media_type?: string }; return: Stream[] };
   get_subtitles: { args: { content_id: string; media_type?: string }; return: Subtitle[] };
+  get_addon_meta: { args: { content_id: string; media_type?: string }; return: MetaItem };
   list_catalogs: { args: { media_type: string }; return: CatalogInfo[] };
   aggregate_catalogs: { args: { media_type: string; catalog_id: string; extra?: { [key: string]: string } }; return: { items: any[]; sources: any[]; total_time_ms: number } };
   

@@ -2,6 +2,7 @@
 // HLS.js is lazy-loaded only when needed to reduce initial bundle size
 type HlsType = typeof import('hls.js').default;
 import { DashPlayer } from './dash-player';
+import { TorrentPlayer, TorrentStats } from './torrent-player';
 import { detectStreamFormat } from './stream-format-detector';
 import { convertSRTtoVTT, adjustTimestamps } from './subtitle-parser';
 import { showToast } from './ui-utils';
@@ -18,6 +19,7 @@ export class VideoPlayer {
     private video: HTMLVideoElement;
     private hls: InstanceType<HlsType> | null = null;
     private dashPlayer: DashPlayer | null = null;
+    private torrentPlayer: TorrentPlayer | null = null;
     private onCloseCallback?: () => void;
     private isPipActive: boolean = false;
     private hlsModule: HlsType | null = null;
@@ -25,6 +27,7 @@ export class VideoPlayer {
     private subtitleOffset: number = 0; // in seconds
     private originalSubtitleContent: Map<string, string> = new Map(); // Map<track.src, originalVttContent>
     private trackElementMap: Map<TextTrack, HTMLTrackElement> = new Map(); // Map TextTrack to HTMLTrackElement
+    private torrentStatsElement: HTMLElement | null = null;
 
     constructor(options: PlayerOptions) {
         this.container = options.container;
@@ -67,6 +70,11 @@ export class VideoPlayer {
         const format = detectStreamFormat(url);
 
         switch (format) {
+            case 'torrent':
+                console.log('Torrent/Magnet link detected. Initializing WebTorrent...');
+                this.loadTorrentStream(url);
+                break;
+
             case 'dash':
                 console.log('DASH stream detected. Initializing dash.js...');
                 this.dashPlayer = new DashPlayer(this.video);
@@ -168,6 +176,18 @@ export class VideoPlayer {
         }
         
         this.video.load();
+    }
+
+    /**
+     * Load torrent/magnet stream using WebTorrent
+     */
+    private loadTorrentStream(magnetOrTorrent: string): void {
+        this.torrentPlayer = new TorrentPlayer(this.video);
+        this.setupTorrentStatsUI();
+
+        this.torrentPlayer.load(magnetOrTorrent, (stats: TorrentStats) => {
+            this.updateTorrentStatsUI(stats);
+        });
     }
 
     /**
@@ -490,7 +510,7 @@ export class VideoPlayer {
     }
 
     /**
-     * Cleans up resources from the previous stream (HLS, DASH, subtitles).
+     * Cleans up resources from the previous stream (HLS, DASH, torrent, subtitles).
      */
     private cleanupPreviousStream(): void {
         this.cleanupLocalSubtitles();
@@ -502,6 +522,11 @@ export class VideoPlayer {
             this.dashPlayer.destroy();
             this.dashPlayer = null;
         }
+        if (this.torrentPlayer) {
+            this.torrentPlayer.destroy();
+            this.torrentPlayer = null;
+        }
+        this.hideTorrentStatsUI();
         document.getElementById('quality-selector')!.innerHTML = '';
     }
 
@@ -741,6 +766,60 @@ export class VideoPlayer {
      */
     isInPip(): boolean {
         return this.isPipActive;
+    }
+
+    /**
+     * Setup torrent stats UI
+     */
+    private setupTorrentStatsUI(): void {
+        // Check if the stats container already exists
+        let statsContainer = document.getElementById('torrent-stats');
+        if (!statsContainer) {
+            statsContainer = document.createElement('div');
+            statsContainer.id = 'torrent-stats';
+            statsContainer.style.cssText = `
+                position: absolute;
+                top: 60px;
+                right: 20px;
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 15px;
+                border-radius: 8px;
+                font-size: 12px;
+                font-family: monospace;
+                z-index: 1000;
+                min-width: 200px;
+            `;
+            this.container.appendChild(statsContainer);
+        }
+        this.torrentStatsElement = statsContainer;
+        statsContainer.style.display = 'block';
+    }
+
+    /**
+     * Update torrent stats UI
+     */
+    private updateTorrentStatsUI(stats: TorrentStats): void {
+        if (!this.torrentStatsElement) return;
+
+        this.torrentStatsElement.innerHTML = `
+            <div style="margin-bottom: 8px; font-weight: bold; color: #4CAF50;">📊 Torrent Stats</div>
+            <div>⬇️ Download: ${TorrentPlayer.formatSpeed(stats.downloadSpeed)}</div>
+            <div>⬆️ Upload: ${TorrentPlayer.formatSpeed(stats.uploadSpeed)}</div>
+            <div>👥 Peers: ${stats.numPeers}</div>
+            <div>📥 Downloaded: ${TorrentPlayer.formatBytes(stats.downloaded)}</div>
+            <div>📤 Uploaded: ${TorrentPlayer.formatBytes(stats.uploaded)}</div>
+            <div>⏳ Progress: ${(stats.progress * 100).toFixed(1)}%</div>
+        `;
+    }
+
+    /**
+     * Hide torrent stats UI
+     */
+    private hideTorrentStatsUI(): void {
+        if (this.torrentStatsElement) {
+            this.torrentStatsElement.style.display = 'none';
+        }
     }
 }
 

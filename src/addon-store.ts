@@ -5,6 +5,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from './ui-utils';
+import { addonManifestLoader } from './addon-manifest-loader';
 
 export interface StoreAddon {
     id: string;
@@ -24,97 +25,67 @@ export interface StoreAddon {
     healthScore?: number;
 }
 
-// Curated list of community add-ons (this would ideally come from a server/API)
+// Real Stremio community addons
 const CURATED_ADDONS: StoreAddon[] = [
     {
-        id: 'org.example.movies',
-        name: 'Example Movies',
+        id: 'com.stremio.cinemeta',
+        name: 'Cinemeta (TMDB)',
         version: '1.0.0',
-        description: 'Free movies from various sources. Includes popular movies, classics, and indie films.',
-        url: 'https://example.com/addon/manifest.json',
-        author: 'Community',
-        category: ['movies', 'general'],
-        rating: 4.5,
-        downloads: 10250,
+        description: 'Official metadata addon (TMDB-backed) — titles, posters, details.',
+        url: 'https://v3-cinemeta.strem.io/manifest.json',
+        author: 'Stremio',
+        category: ['movies', 'series', 'general'],
+        rating: 4.9,
+        downloads: 50000,
         verified: true,
         featured: true,
-        types: ['movie'],
-        healthScore: 85,
+        types: ['movie', 'series'],
+        healthScore: 98,
     },
     {
-        id: 'org.example.series',
-        name: 'TV Series Hub',
-        version: '2.1.0',
-        description: 'Comprehensive TV series catalog with latest episodes and complete seasons.',
-        url: 'https://example.com/series/manifest.json',
-        author: 'SeriesTeam',
-        category: ['series'],
-        rating: 4.7,
-        downloads: 8500,
+        id: 'com.stremio.watchhub',
+        name: 'WatchHub',
+        version: '1.0.0',
+        description: 'Aggregator for streaming sources across services.',
+        url: 'https://watchhub.strem.io/manifest.json',
+        author: 'Stremio',
+        category: ['movies', 'series'],
+        rating: 4.6,
+        downloads: 30000,
         verified: true,
         featured: true,
-        types: ['series'],
+        types: ['movie', 'series'],
+        healthScore: 90,
+    },
+    {
+        id: 'com.stremio.streamingcatalogs',
+        name: 'Streaming Catalogs',
+        version: '1.0.0',
+        description: 'Browse trending catalogs from popular services.',
+        url: 'https://94c8cb9f702d-stremio-streaming-catalogs.baby-beamup.club/manifest.json',
+        author: 'Stremio Community',
+        category: ['movies', 'series'],
+        rating: 4.7,
+        downloads: 25000,
+        verified: true,
+        featured: false,
+        types: ['movie', 'series'],
         healthScore: 92,
     },
     {
-        id: 'org.anime.central',
-        name: 'Anime Central',
-        version: '1.5.2',
-        description: 'Your one-stop shop for anime content. Includes subbed and dubbed versions.',
-        url: 'https://example.com/anime/manifest.json',
-        author: 'AnimeLovers',
-        category: ['anime', 'series'],
-        rating: 4.8,
-        downloads: 15000,
-        verified: true,
-        featured: true,
-        types: ['series'],
-        healthScore: 88,
-    },
-    {
-        id: 'com.subtitles.opensubtitles',
+        id: 'com.stremio.opensubtitles',
         name: 'OpenSubtitles',
-        version: '3.0.0',
-        description: 'Largest collection of subtitles in multiple languages.',
-        url: 'https://example.com/subs/manifest.json',
-        author: 'OpenSubtitles Team',
+        version: '4.0.0',
+        description: 'Subtitles in multiple languages from OpenSubtitles.org',
+        url: 'https://opensubtitles.strem.io/manifest.json',
+        author: 'Stremio',
         category: ['subtitles'],
         rating: 4.6,
-        downloads: 20000,
+        downloads: 40000,
         verified: true,
         featured: false,
         types: ['movie', 'series'],
         healthScore: 95,
-    },
-    {
-        id: 'org.documentaries.world',
-        name: 'World Documentaries',
-        version: '1.2.0',
-        description: 'Curated collection of documentaries covering nature, science, history, and more.',
-        url: 'https://example.com/docs/manifest.json',
-        author: 'DocWorld',
-        category: ['documentaries'],
-        rating: 4.4,
-        downloads: 3500,
-        verified: true,
-        featured: false,
-        types: ['movie'],
-        healthScore: 78,
-    },
-    {
-        id: 'net.indie.films',
-        name: 'Indie Films Collection',
-        version: '1.0.5',
-        description: 'Independent and art-house films from around the world.',
-        url: 'https://example.com/indie/manifest.json',
-        author: 'IndieFilms',
-        category: ['movies'],
-        rating: 4.2,
-        downloads: 2100,
-        verified: false,
-        featured: false,
-        types: ['movie'],
-        healthScore: 65,
     },
 ];
 
@@ -126,6 +97,7 @@ export class AddonStore {
     constructor() {
         this.setupTabSwitching();
         this.setupStoreControls();
+        this.setupManifestUrlInstall();
     }
 
     /**
@@ -157,6 +129,97 @@ export class AddonStore {
                 // Load store addons when switching to store tab
                 if (tabName === 'store') {
                     this.loadStoreAddons();
+                }
+            });
+        });
+    }
+
+    /**
+     * Setup manifest URL installation
+     */
+    private setupManifestUrlInstall(): void {
+        const manifestUrlInput = document.getElementById('manifest-url-input') as HTMLInputElement;
+        const installFromUrlBtn = document.getElementById('install-from-url-btn') as HTMLButtonElement;
+        const previewBtn = document.getElementById('preview-manifest-btn') as HTMLButtonElement;
+
+        // Install button handler
+        installFromUrlBtn?.addEventListener('click', async () => {
+            const url = manifestUrlInput?.value.trim();
+            if (!url) {
+                showToast('Please enter a manifest URL', 'error');
+                return;
+            }
+
+            installFromUrlBtn.disabled = true;
+            installFromUrlBtn.textContent = 'Installing...';
+
+            try {
+                await addonManifestLoader.installFromUrl(url);
+                manifestUrlInput.value = '';
+                
+                // Refresh installed addons list
+                await (window as any).app.loadAddons();
+                
+                // Switch to installed tab
+                const installedTab = document.querySelector('[data-tab="installed"]') as HTMLButtonElement;
+                installedTab?.click();
+            } catch (error) {
+                console.error('Installation error:', error);
+            } finally {
+                installFromUrlBtn.disabled = false;
+                installFromUrlBtn.textContent = 'Install';
+            }
+        });
+
+        // Preview button handler
+        previewBtn?.addEventListener('click', async () => {
+            const url = manifestUrlInput?.value.trim();
+            if (!url) {
+                showToast('Please enter a manifest URL', 'error');
+                return;
+            }
+
+            previewBtn.disabled = true;
+            previewBtn.textContent = 'Loading...';
+
+            try {
+                const info = await addonManifestLoader.getAddonInfo(url);
+                const message = `
+Name: ${info.name}
+Version: ${info.version}
+Types: ${info.types.join(', ')}
+Resources: ${info.resources.join(', ')}
+Catalogs: ${info.catalogs}
+${info.isOfficial ? '✅ Official Stremio addon' : '⚠️ Third-party addon'}
+
+${info.description}`;
+                
+                alert(message);
+            } catch (error) {
+                console.error('Preview error:', error);
+                if (error instanceof Error) {
+                    showToast(`Failed to preview: ${error.message}`, 'error');
+                }
+            } finally {
+                previewBtn.disabled = false;
+                previewBtn.textContent = 'Preview';
+            }
+        });
+
+        // Enter key support
+        manifestUrlInput?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                installFromUrlBtn?.click();
+            }
+        });
+
+        // Quick install buttons
+        document.querySelectorAll('.url-example-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const url = (btn as HTMLElement).dataset.url;
+                if (url && manifestUrlInput) {
+                    manifestUrlInput.value = url;
+                    installFromUrlBtn?.click();
                 }
             });
         });
@@ -337,7 +400,7 @@ export class AddonStore {
         try {
             showToast(`Installing ${addon.name}...`, 'info');
 
-            await invoke('install_addon', { addon_url: addon.url });
+            await invoke('install_addon', { addon_url: addon.url, addonUrl: addon.url });
 
             this.installedAddonIds.add(addon.id);
             showToast(`${addon.name} installed successfully!`, 'success');
@@ -373,13 +436,4 @@ export class AddonStore {
         if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
         return num.toString();
     }
-}
-
-// Initialize addon store when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        new AddonStore();
-    });
-} else {
-    new AddonStore();
 }

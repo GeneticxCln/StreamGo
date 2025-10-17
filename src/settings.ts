@@ -60,7 +60,8 @@ export class SettingsManager {
             notifications_enabled: true,
             auto_update: true,
             telemetry_enabled: false,
-        };
+            tmdb_api_key: '',
+        } as any;
     }
 
     /**
@@ -165,6 +166,17 @@ export class SettingsManager {
                                 <option value="es" ${this.currentSettings.subtitle_language === 'es' ? 'selected' : ''}>Spanish</option>
                                 <option value="fr" ${this.currentSettings.subtitle_language === 'fr' ? 'selected' : ''}>French</option>
                             </select>
+                        </div>
+                    </section>
+
+                    <!-- Integrations -->
+                    <section class="settings-section">
+                        <h3>Integrations</h3>
+
+                        <div class="setting-item">
+                            <label for="tmdb_api_key">TMDB API Key</label>
+                            <input type="password" id="tmdb_api_key" name="tmdb_api_key" placeholder="Paste your TMDB API key" value="${this.currentSettings.tmdb_api_key || ''}" />
+                            <p class="setting-description">Used for Search (Discover works via addons without this).</p>
                         </div>
                     </section>
 
@@ -303,7 +315,8 @@ export class SettingsManager {
             notifications_enabled: getValue('notifications_enabled') !== null ? getValue('notifications_enabled') : true,
             auto_update: getValue('auto_update') !== null ? getValue('auto_update') : true,
             telemetry_enabled: getValue('telemetry_enabled') !== null ? getValue('telemetry_enabled') : false,
-        };
+            tmdb_api_key: (getValue('tmdb_api_key') || '').trim() || undefined,
+        } as any;
     }
 
     /**

@@ -185,9 +185,11 @@ impl Database {
     }
 
     pub fn get_addons(&self) -> Result<Vec<Addon>, anyhow::Error> {
+        // Only return addons with a valid HTTP(S) URL; this avoids legacy rows with missing/placeholder URLs
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, version, description, author, url, enabled, addon_type, manifest, priority 
-             FROM addons",
+            "SELECT id, name, version, description, author, url, enabled, addon_type, manifest, priority \
+             FROM addons \
+             WHERE url IS NOT NULL AND url <> '' AND url LIKE 'http%'",
         )?;
 
         let addon_iter = stmt.query_map([], |row| {
@@ -225,7 +227,10 @@ impl Database {
 
         let mut addons = Vec::new();
         for addon in addon_iter {
-            addons.push(addon?);
+            // Skip any rows that failed to parse cleanly
+            if let Ok(a) = addon {
+                addons.push(a);
+            }
         }
         Ok(addons)
     }

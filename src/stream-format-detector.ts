@@ -3,7 +3,7 @@
  * Detects streaming format from URL or content type
  */
 
-export type StreamFormat = 'hls' | 'dash' | 'direct';
+export type StreamFormat = 'hls' | 'dash' | 'direct' | 'torrent';
 
 export interface StreamInfo {
   format: StreamFormat;
@@ -16,6 +16,11 @@ export interface StreamInfo {
  */
 export function detectStreamFormat(url: string): StreamFormat {
   const urlLower = url.toLowerCase();
+  
+  // Magnet link or torrent detection
+  if (urlLower.startsWith('magnet:') || urlLower.endsWith('.torrent')) {
+    return 'torrent';
+  }
   
   // HLS detection
   if (urlLower.includes('.m3u8') || urlLower.includes('m3u8')) {
@@ -42,6 +47,10 @@ export function getStreamInfo(url: string): StreamInfo {
   let isAdaptive = false;
   
   switch (format) {
+    case 'torrent':
+      mimeType = 'application/x-bittorrent';
+      isAdaptive = false;
+      break;
     case 'hls':
       mimeType = 'application/vnd.apple.mpegurl';
       isAdaptive = true;
@@ -79,6 +88,9 @@ export function isNativelySupported(format: StreamFormat): boolean {
   const video = document.createElement('video');
   
   switch (format) {
+    case 'torrent':
+      // Torrents require WebTorrent
+      return false;
     case 'hls':
       // Safari supports HLS natively
       return video.canPlayType('application/vnd.apple.mpegurl') !== '';

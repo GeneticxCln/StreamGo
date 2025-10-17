@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "StreamGo - A modern media center and video streaming application"
 authors = ["StreamGo Team"]
 license = "MIT"
-repository = ""
+repository = "https://github.com/GeneticxCln/StreamGo"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -62,3 +62,11 @@ uuid = { version = "1.0", features = ["v4"] }
 
 # Lazy static initialization
 once_cell = "1.19"
+
+# Release profile optimizations for Linux
+[profile.release]
+opt-level = 3          # Maximum optimizations
+lto = "fat"            # Link-time optimization across all crates
+codegen-units = 1      # Better optimization, slower compile
+strip = true           # Strip debug symbols (smaller binary)
+panic = "abort"        # Smaller binary, faster panic handling

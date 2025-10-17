@@ -79,7 +79,11 @@ impl ContentAggregator {
         );
 
         // Filter and sort enabled addons by priority (higher priority first)
-        let mut enabled_addons: Vec<_> = addons.iter().filter(|a| a.enabled).collect();
+        // Also filter out addons with empty URLs
+        let mut enabled_addons: Vec<_> = addons
+            .iter()
+            .filter(|a| a.enabled && !a.url.is_empty())
+            .collect();
 
         enabled_addons.sort_by(|a, b| b.priority.cmp(&a.priority));
 
@@ -248,11 +252,18 @@ impl ContentAggregator {
         tracing::debug!(
             addon_id = %addon.id,
             addon_name = %addon.name,
+            addon_url = %addon.url,
             "Querying addon (cache miss)"
         );
 
         // Use addon URL directly (manifest is already a struct, not JSON string)
-        let base_url = addon.url.clone();
+        let base_url = if addon.url.ends_with("/manifest.json") {
+            addon.url.replace("/manifest.json", "")
+        } else if addon.url.ends_with("manifest.json") {
+            addon.url.replace("manifest.json", "")
+        } else {
+            addon.url.clone()
+        };
 
         // Create client
         let client = match AddonClient::new(base_url) {
@@ -379,7 +390,11 @@ impl ContentAggregator {
         );
 
         // Filter and sort enabled addons by priority (higher priority first)
-        let mut enabled_addons: Vec<_> = addons.iter().filter(|a| a.enabled).collect();
+        // Also filter out addons with empty URLs
+        let mut enabled_addons: Vec<_> = addons
+            .iter()
+            .filter(|a| a.enabled && !a.url.is_empty())
+            .collect();
         enabled_addons.sort_by(|a, b| b.priority.cmp(&a.priority));
 
         if enabled_addons.is_empty() {
@@ -526,7 +541,13 @@ impl ContentAggregator {
         }
 
         // Use addon URL directly (manifest is already a struct, not JSON string)
-        let base_url = addon.url.clone();
+        let base_url = if addon.url.ends_with("/manifest.json") {
+            addon.url.replace("/manifest.json", "")
+        } else if addon.url.ends_with("manifest.json") {
+            addon.url.replace("manifest.json", "")
+        } else {
+            addon.url.clone()
+        };
 
         let client = match AddonClient::new(base_url) {
             Ok(client) => client,

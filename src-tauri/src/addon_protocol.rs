@@ -18,6 +18,9 @@ const MAX_CATALOG_ITEMS: usize = 1000;
 const MAX_RETRIES: u32 = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 100;
 
+// Compatibility limits (relaxed for wide addon support)
+const MAX_EXTRA_OPTIONS: usize = 1000; // previously 100; relaxed to support large lists like genres
+
 /// Addon manifest - describes capabilities and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddonManifest {
@@ -31,21 +34,16 @@ pub struct AddonManifest {
     pub catalogs: Vec<CatalogDescriptor>,
     #[serde(default)]
     pub resources: Vec<ResourceType>,
-    #[serde(default)]
+    #[serde(default, rename = "idPrefixes")]
     pub id_prefixes: Vec<String>,
-    #[serde(default)]
+    #[serde(default, rename = "behaviorHints")]
     pub behavior_hints: BehaviorHints,
 }
 
-/// Media types supported by addon
+/// Media types supported by addon - flexible string to support any type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum AddonMediaType {
-    Movie,
-    Series,
-    Channel,
-    TV,
-}
+#[serde(transparent)]
+pub struct AddonMediaType(pub String);
 
 /// Catalog descriptor - describes a content catalog
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,22 +60,86 @@ pub struct CatalogDescriptor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtraField {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, rename = "isRequired")]
     pub is_required: bool,
     #[serde(default)]
     pub options: Vec<String>,
-    #[serde(default)]
+    #[serde(default, rename = "optionsLimit")]
     pub options_limit: Option<u32>,
 }
 
 /// Resource types provided by addon
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ResourceType {
     Catalog,
     Stream,
     Meta,
     Subtitles,
+    #[serde(rename = "addon_catalog")]
+    AddonCatalog,
+}
+
+// Custom deserializer to handle both string and object formats
+impl<'de> Deserialize<'de> for ResourceType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{self, Error, Visitor};
+        use serde_json::Value;
+
+        struct ResourceVisitor;
+
+        impl<'de> Visitor<'de> for ResourceVisitor {
+            type Value = ResourceType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or object representing a resource type")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<ResourceType, E>
+            where
+                E: de::Error,
+            {
+                match value {
+                    "catalog" => Ok(ResourceType::Catalog),
+                    "stream" => Ok(ResourceType::Stream),
+                    "meta" => Ok(ResourceType::Meta),
+                    "subtitles" => Ok(ResourceType::Subtitles),
+                    "addon_catalog" => Ok(ResourceType::AddonCatalog),
+                    _ => Err(E::custom(format!("unknown resource type: {}", value))),
+                }
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<ResourceType, M::Error>
+            where
+                M: de::MapAccess<'de>,
+            {
+                let mut name: Option<String> = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "name" {
+                        name = Some(map.next_value()?);
+                    } else {
+                        // Skip other fields like "types", "idPrefixes"
+                        map.next_value::<Value>()?;
+                    }
+                }
+                
+                match name.as_deref() {
+                    Some("catalog") => Ok(ResourceType::Catalog),
+                    Some("stream") => Ok(ResourceType::Stream),
+                    Some("meta") => Ok(ResourceType::Meta),
+                    Some("subtitles") => Ok(ResourceType::Subtitles),
+                    Some("addon_catalog") => Ok(ResourceType::AddonCatalog),
+                    Some(other) => Err(M::Error::custom(format!("unknown resource name: {}", other))),
+                    None => Err(M::Error::custom("missing 'name' field in resource object")),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(ResourceVisitor)
+    }
 }
 
 /// Behavior hints for addon
@@ -131,6 +193,107 @@ pub struct SubtitlesResponse {
     pub subtitles: Vec<Subtitle>,
 }
 
+/// Meta response - detailed metadata for a media item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetaResponse {
+    pub meta: MetaItem,
+}
+
+/// MetaItem - full metadata with all Stremio fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)] // Stremio protocol uses camelCase
+pub struct MetaItem {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub media_type: AddonMediaType,
+    pub name: String,
+    #[serde(default)]
+    pub poster: Option<String>,
+    #[serde(default)]
+    pub posterShape: Option<String>,
+    #[serde(default)]
+    pub background: Option<String>,
+    #[serde(default)]
+    pub logo: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub releaseInfo: Option<String>,
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub genres: Vec<String>,
+    #[serde(default)]
+    pub director: Vec<String>,
+    #[serde(default)]
+    pub cast: Vec<String>,
+    #[serde(default)]
+    pub writer: Vec<String>,
+    #[serde(default)]
+    pub imdbRating: Option<f32>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub awards: Option<String>,
+    #[serde(default)]
+    pub website: Option<String>,
+    #[serde(default)]
+    pub trailers: Vec<Trailer>,
+    #[serde(default)]
+    pub videos: Vec<Video>,
+    #[serde(default)]
+    pub links: Vec<MetaLink>,
+    // Series-specific fields
+    #[serde(default)]
+    pub behaviorHints: MetaBehaviorHints,
+}
+
+/// Trailer info for meta
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Trailer {
+    pub source: String, // e.g. "youtube:dQw4w9WgXcQ"
+    #[serde(rename = "type")]
+    pub trailer_type: String, // e.g. "Trailer", "Clip"
+}
+
+/// Video episode info for series
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
+pub struct Video {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub released: Option<String>,
+    #[serde(default)]
+    pub season: Option<u32>,
+    #[serde(default)]
+    pub episode: Option<u32>,
+    #[serde(default)]
+    pub thumbnail: Option<String>,
+    #[serde(default)]
+    pub overview: Option<String>,
+}
+
+/// External links for meta
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetaLink {
+    pub name: String,
+    pub category: String,
+    pub url: String,
+}
+
+/// Meta behavior hints
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[allow(non_snake_case)]
+pub struct MetaBehaviorHints {
+    #[serde(default)]
+    pub defaultVideoId: Option<String>,
+    #[serde(default)]
+    pub hasScheduledVideos: bool,
+}
+
 /// Stream - a playable media source
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(non_snake_case)] // Stremio protocol uses camelCase
@@ -177,6 +340,39 @@ pub struct Subtitle {
     pub id: String,
     pub url: String,
     pub lang: String,
+}
+
+/// Episode ID parsing utilities for Stremio format
+pub mod episode_id {
+    /// Parse episode ID in Stremio format: "series_id:season:episode"
+    /// Example: "tt1234567:1:5" -> ("tt1234567", 1, 5)
+    pub fn parse(id: &str) -> Option<(String, u32, u32)> {
+        let parts: Vec<&str> = id.split(':').collect();
+        if parts.len() < 3 {
+            return None;
+        }
+        
+        let series_id = parts[0].to_string();
+        let season = parts[1].parse().ok()?;
+        let episode = parts[2].parse().ok()?;
+        
+        Some((series_id, season, episode))
+    }
+    
+    /// Build episode ID from components
+    pub fn build(series_id: &str, season: u32, episode: u32) -> String {
+        format!("{}:{}:{}", series_id, season, episode)
+    }
+    
+    /// Check if ID is an episode ID (contains season:episode)
+    pub fn is_episode_id(id: &str) -> bool {
+        id.matches(':').count() >= 2
+    }
+    
+    /// Extract series ID from episode ID
+    pub fn get_series_id(id: &str) -> Option<String> {
+        id.split(':').next().map(|s| s.to_string())
+    }
 }
 
 /// Addon client for making HTTP requests
@@ -464,7 +660,10 @@ impl AddonClient {
         media_type: &str,
         media_id: &str,
     ) -> Result<SubtitlesResponse, AddonError> {
-        let url = format!("{}/subtitles/{}/{}.json", self.base_url, media_type, media_id);
+        let url = format!(
+            "{}/subtitles/{}/{}.json",
+            self.base_url, media_type, media_id
+        );
 
         tracing::info!(url = %url, "Fetching subtitles");
 
@@ -503,10 +702,66 @@ impl AddonClient {
             .map_err(|e| AddonError::ParseError(e.to_string()))?;
 
         // Validate subtitle URLs
-        subs.subtitles
-            .retain(|s| Self::validate_stream_url(&s.url));
+        subs.subtitles.retain(|s| Self::validate_stream_url(&s.url));
 
         Ok(subs)
+    }
+
+    /// Fetch detailed metadata for a media item
+    pub async fn get_meta(
+        &self,
+        media_type: &str,
+        media_id: &str,
+    ) -> Result<MetaResponse, AddonError> {
+        let url = format!(
+            "{}/meta/{}/{}.json",
+            self.base_url, media_type, media_id
+        );
+
+        tracing::info!(url = %url, "Fetching meta");
+
+        let client = self.client.clone();
+        let url_clone = url.clone();
+
+        let response = Self::retry_with_backoff(|| async {
+            client
+                .get(url_clone.clone())
+                .send()
+                .await
+                .map_err(|e| AddonError::HttpError(e.to_string()))
+        })
+        .await?;
+
+        if !response.status().is_success() {
+            return Err(AddonError::HttpError(format!(
+                "HTTP {}: {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            )));
+        }
+
+        if let Some(length) = response.content_length() {
+            if length > MAX_RESPONSE_SIZE {
+                return Err(AddonError::ValidationError(format!(
+                    "Response size {} exceeds maximum {}",
+                    length, MAX_RESPONSE_SIZE
+                )));
+            }
+        }
+
+        let meta = response
+            .json::<MetaResponse>()
+            .await
+            .map_err(|e| AddonError::ParseError(e.to_string()))?;
+
+        tracing::info!(
+            media_type = %media_type,
+            media_id = %media_id,
+            meta_name = %meta.meta.name,
+            "Successfully fetched meta"
+        );
+
+        Ok(meta)
     }
 
     /// Validate manifest with comprehensive checks
@@ -721,12 +976,13 @@ impl AddonClient {
             ));
         }
 
-        // Validate options if provided
+        // Validate options if provided (relaxed upper bound for compatibility)
         if !extra.options.is_empty() {
-            if extra.options.len() > 100 {
+            if extra.options.len() > MAX_EXTRA_OPTIONS {
                 return Err(AddonError::ValidationError(format!(
-                    "Extra field '{}' has too many options (max 100)",
-                    extra.name
+                    "Extra field '{}' has too many options (max {})",
+                    extra.name,
+                    MAX_EXTRA_OPTIONS
                 )));
             }
 
@@ -740,11 +996,11 @@ impl AddonClient {
             }
         }
 
-        // Validate options_limit
+        // Validate options_limit (only ensure it's >= 1; no strict upper bound)
         if let Some(limit) = extra.options_limit {
-            if limit == 0 || limit > 100 {
+            if limit == 0 {
                 return Err(AddonError::ValidationError(format!(
-                    "Extra field '{}' options_limit must be between 1 and 100",
+                    "Extra field '{}' options_limit must be at least 1",
                     extra.name
                 )));
             }
@@ -810,9 +1066,9 @@ mod tests {
             name: "Test Addon".to_string(),
             version: "1.0.0".to_string(),
             description: "A test addon".to_string(),
-            types: vec![AddonMediaType::Movie],
+            types: vec![AddonMediaType("movie".to_string())],
             catalogs: vec![CatalogDescriptor {
-                media_type: AddonMediaType::Movie,
+                media_type: AddonMediaType("movie".to_string()),
                 id: "popular".to_string(),
                 name: "Popular".to_string(),
                 extra: vec![],

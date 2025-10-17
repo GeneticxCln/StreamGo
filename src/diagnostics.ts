@@ -15,7 +15,8 @@ import {
   getSuccessRate
 } from './health-api';
 import { Toast } from './ui-utils';
-import { escapeHtml } from './utils';
+import { escapeHtml } from './utils/security';
+import { invoke } from './utils';
 
 export class DiagnosticsManager {
   private healthData: AddonHealthSummary[] = [];
@@ -26,14 +27,24 @@ export class DiagnosticsManager {
    * Render the complete diagnostics dashboard
    */
   async renderDashboard(container: HTMLElement): Promise<void> {
-    try {
-      container.innerHTML = '<div class="loading-spinner">Loading diagnostics...</div>';
+    // Always render the dashboard structure, even if data loading fails
+    container.innerHTML = '<div class="diagnostics-dashboard"><div class="loading-spinner">Loading diagnostics...</div></div>';
 
-      // Fetch all data in parallel
+    try {
+      // Fetch all data in parallel with individual error handling
       const [health, metrics, cache] = await Promise.all([
-        getAddonHealthSummaries(),
-        getPerformanceMetrics(),
-        getCacheStats()
+        getAddonHealthSummaries().catch(err => {
+          console.warn('Failed to load health data:', err);
+          return [];
+        }),
+        getPerformanceMetrics().catch(err => {
+          console.warn('Failed to load metrics:', err);
+          return null;
+        }),
+        getCacheStats().catch(err => {
+          console.warn('Failed to load cache stats:', err);
+          return null;
+        })
       ]);
 
       this.healthData = health;
@@ -67,13 +78,19 @@ export class DiagnosticsManager {
       this.attachEventListeners(container);
     } catch (error) {
       console.error('Failed to load diagnostics:', error);
+      // Still render dashboard structure with error message inside
       container.innerHTML = `
-        <div class="error-state">
-          <h3>❌ Failed to load diagnostics</h3>
-          <p>${escapeHtml(String(error))}</p>
-          <button class="btn btn-primary" onclick="diagnosticsManager.renderDashboard(document.getElementById('diagnostics-container'))">
-            Retry
-          </button>
+        <div class="diagnostics-dashboard">
+          <div class="diagnostics-header">
+            <h2>📊 Diagnostics & Health</h2>
+          </div>
+          <div class="error-state">
+            <h3>❌ Failed to load diagnostics</h3>
+            <p>${escapeHtml(String(error))}</p>
+            <button class="btn btn-primary" onclick="diagnosticsManager.renderDashboard(document.getElementById('diagnostics-container'))">
+              Retry
+            </button>
+          </div>
         </div>
       `;
       Toast.error(`Failed to load diagnostics: ${error}`);
@@ -84,7 +101,14 @@ export class DiagnosticsManager {
    * Render performance metrics section
    */
   private renderPerformanceMetrics(): string {
-    if (!this.metricsData) return '';
+    if (!this.metricsData) {
+      return `
+        <div class="diagnostics-card">
+          <h3>⚡ Performance Metrics</h3>
+          <p class="empty-message">No performance data available yet.</p>
+        </div>
+      `;
+    }
 
     const successRate = getSuccessRate(this.metricsData);
     const cacheHitRate = getCacheHitRate(this.metricsData);
@@ -123,7 +147,14 @@ export class DiagnosticsManager {
    * Render cache statistics section
    */
   private renderCacheStats(): string {
-    if (!this.cacheStats) return '';
+    if (!this.cacheStats) {
+      return `
+        <div class="diagnostics-card">
+          <h3>💾 Cache Statistics</h3>
+          <p class="empty-message">No cache data available yet.</p>
+        </div>
+      `;
+    }
 
     const metadataValid = this.cacheStats.metadata_valid;
     const metadataTotal = this.cacheStats.metadata_total;
@@ -181,10 +212,38 @@ export class DiagnosticsManager {
     }
 
     const healthItems = this.healthData.map(health => this.renderHealthItem(health)).join('');
+    
+    // Count unhealthy addons (health score < 50)
+    const unhealthyCount = this.healthData.filter(h => h.health_score < 50).length;
 
     return `
       <div class="diagnostics-card full-width">
-        <h3>🏥 Addon Health</h3>
+        <div class="health-header-section">
+          <h3>🏥 Addon Health</h3>
+          <div class="health-actions">
+            <div class="threshold-control">
+              <label for="health-threshold">Auto-disable threshold:</label>
+              <input 
+                type="number" 
+                id="health-threshold" 
+                min="0" 
+                max="100" 
+                value="30" 
+                step="5"
+                class="threshold-input"
+              >
+              <span class="threshold-unit">/ 100</span>
+            </div>
+            <button id="auto-disable-btn" class="btn btn-small btn-warning">
+              ⚡ Auto-Disable Unhealthy
+            </button>
+          </div>
+        </div>
+        ${unhealthyCount > 0 ? `
+          <div class="health-warning">
+            ⚠️ Warning: ${unhealthyCount} addon(s) with poor health detected
+          </div>
+        ` : ''}
         <div class="health-list">
           ${healthItems}
         </div>
@@ -353,6 +412,52 @@ export class DiagnosticsManager {
         }
       });
     }
+
+    // Auto-disable unhealthy addons button
+    const autoDisableBtn = container.querySelector('#auto-disable-btn');
+    if (autoDisableBtn) {
+      autoDisableBtn.addEventListener('click', async () => {
+        const btn = autoDisableBtn as HTMLButtonElement;
+        const thresholdInput = container.querySelector('#health-threshold') as HTMLInputElement;
+        const threshold = parseFloat(thresholdInput?.value || '30');
+        
+        const original = btn.innerHTML;
+        btn.classList.add('loading');
+        btn.disabled = true;
+        btn.innerHTML = 'Processing...';
+        
+        try {
+          const disabledAddons = await this.autoDisableUnhealthyAddons(threshold);
+          
+          if (disabledAddons.length === 0) {
+            Toast.info('No addons were below the health threshold');
+          } else {
+            Toast.success(`Auto-disabled ${disabledAddons.length} addon(s): ${disabledAddons.join(', ')}`);
+          }
+          
+          // Refresh addon list in main app
+          if ((window as any).app && typeof (window as any).app.loadAddons === 'function') {
+            await (window as any).app.loadAddons();
+          }
+          
+          await this.renderDashboard(container);
+        } catch (error) {
+          console.error('Auto-disable failed:', error);
+          Toast.error(`Failed to auto-disable addons: ${error}`);
+        } finally {
+          btn.classList.remove('loading');
+          btn.disabled = false;
+          btn.innerHTML = original;
+        }
+      });
+    }
+  }
+
+  /**
+   * Auto-disable addons below health threshold
+   */
+  private async autoDisableUnhealthyAddons(threshold: number): Promise<string[]> {
+    return await invoke<string[]>('auto_disable_unhealthy_addons', { threshold });
   }
 }
 

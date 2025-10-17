@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 /// Migration trait for implementing version upgrades
 pub trait Migration {
@@ -259,8 +259,12 @@ impl Migration001InitialSchema {
 struct Migration003AddonColumns;
 
 impl Migration for Migration003AddonColumns {
-    fn version(&self) -> u32 { 3 }
-    fn description(&self) -> &str { "Ensure addons table has installed_at and priority columns (legacy upgrades)" }
+    fn version(&self) -> u32 {
+        3
+    }
+    fn description(&self) -> &str {
+        "Ensure addons table has installed_at and priority columns (legacy upgrades)"
+    }
     fn up(&self, conn: &Connection) -> Result<()> {
         // Inspect existing columns
         let mut stmt = conn.prepare("PRAGMA table_info(addons)")?;
@@ -270,14 +274,15 @@ impl Migration for Migration003AddonColumns {
         while let Some(row) = rows.next()? {
             // PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
             let col_name: String = row.get(1)?;
-            if col_name == "installed_at" { has_installed_at = true; }
-            if col_name == "priority" { has_priority = true; }
+            if col_name == "installed_at" {
+                has_installed_at = true;
+            }
+            if col_name == "priority" {
+                has_priority = true;
+            }
         }
         if !has_installed_at {
-            conn.execute(
-                "ALTER TABLE addons ADD COLUMN installed_at TEXT",
-                [],
-            )?;
+            conn.execute("ALTER TABLE addons ADD COLUMN installed_at TEXT", [])?;
             // Backfill with current timestamp for existing rows
             let now = chrono::Utc::now().to_rfc3339();
             conn.execute(
@@ -290,10 +295,7 @@ impl Migration for Migration003AddonColumns {
                 "ALTER TABLE addons ADD COLUMN priority INTEGER DEFAULT 0",
                 [],
             )?;
-            conn.execute(
-                "UPDATE addons SET priority = 0 WHERE priority IS NULL",
-                [],
-            )?;
+            conn.execute("UPDATE addons SET priority = 0 WHERE priority IS NULL", [])?;
         }
         // Ensure index exists for priority
         conn.execute(
@@ -365,6 +367,118 @@ impl Migration for Migration002AddonHealth {
     }
 }
 
+/// Migration v4: Ensure addon URLs are not null and validate existing addons
+struct Migration004ValidateAddonUrls;
+
+impl Migration for Migration004ValidateAddonUrls {
+    fn version(&self) -> u32 {
+        4
+    }
+    fn description(&self) -> &str {
+        "Validate addon URLs are not null and remove invalid addons"
+    }
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Delete any addons with NULL, empty, or invalid URLs
+        // This includes placeholder "built-in" URLs and non-HTTP URLs
+        conn.execute(
+            "DELETE FROM addons WHERE url IS NULL OR url = '' OR url = 'built-in' OR url NOT LIKE 'http%'",
+            [],
+        )?;
+        
+        tracing::info!("Cleaned up addons with invalid URLs");
+        Ok(())
+    }
+}
+
+/// Migration v5: Add episodes table for series/TV show support
+struct Migration005Episodes;
+
+impl Migration for Migration005Episodes {
+    fn version(&self) -> u32 {
+        5
+    }
+
+    fn description(&self) -> &str {
+        "Add episodes table for series and TV show episode tracking"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Episodes table for caching series episodes
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS episodes (
+                id TEXT PRIMARY KEY,
+                series_id TEXT NOT NULL,
+                season INTEGER NOT NULL,
+                episode INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                overview TEXT,
+                thumbnail TEXT,
+                released TEXT,
+                runtime TEXT,
+                watched BOOLEAN DEFAULT 0,
+                progress INTEGER DEFAULT 0,
+                added_at TEXT NOT NULL,
+                FOREIGN KEY (series_id) REFERENCES media_items(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Create indexes for efficient episode queries
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_episodes_series 
+             ON episodes(series_id, season, episode)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_episodes_watched 
+             ON episodes(series_id, watched)",
+            [],
+        )?;
+
+        tracing::info!("Created episodes table for series support");
+        Ok(())
+    }
+}
+
+/// Migration v6: Add addon configuration table
+struct Migration006AddonConfig;
+
+impl Migration for Migration006AddonConfig {
+    fn version(&self) -> u32 {
+        6
+    }
+
+    fn description(&self) -> &str {
+        "Add addon configuration table for storing user settings per addon"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Addon configuration table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS addon_config (
+                addon_id TEXT NOT NULL,
+                config_key TEXT NOT NULL,
+                config_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (addon_id, config_key),
+                FOREIGN KEY (addon_id) REFERENCES addons(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Index for quick addon config lookup
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_addon_config_addon 
+             ON addon_config(addon_id)",
+            [],
+        )?;
+
+        tracing::info!("Created addon_config table for addon settings");
+        Ok(())
+    }
+}
+
 /// Migration runner
 pub struct MigrationRunner {
     migrations: Vec<Box<dyn Migration>>,
@@ -376,6 +490,9 @@ impl MigrationRunner {
             Box::new(Migration001InitialSchema),
             Box::new(Migration002AddonHealth),
             Box::new(Migration003AddonColumns),
+            Box::new(Migration004ValidateAddonUrls),
+            Box::new(Migration005Episodes),
+            Box::new(Migration006AddonConfig),
         ];
         Self { migrations }
     }

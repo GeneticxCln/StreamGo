@@ -3,8 +3,33 @@
  * Handles magnet links and .torrent files
  */
 
-import WebTorrent from 'webtorrent';
-import type { Torrent, TorrentFile } from 'webtorrent';
+// Dynamically load WebTorrent browser bundle to avoid bundling Node-only modules
+// Vite will emit a URL for the UMD bundle; we inject it at runtime.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import webtorrentUrl from 'webtorrent/dist/webtorrent.min.js?url';
+
+declare global {
+  interface Window {
+    WebTorrent?: any;
+  }
+}
+
+type WTFile = {
+  name: string;
+  length: number;
+  renderTo: (videoEl: HTMLVideoElement, opts?: { autoplay?: boolean; controls?: boolean }) => void;
+};
+
+type WTTorrent = {
+  files: WTFile[];
+  downloadSpeed: number;
+  uploadSpeed: number;
+  progress: number;
+  numPeers: number;
+  downloaded: number;
+  uploaded: number;
+};
 
 export interface TorrentStats {
   downloadSpeed: number;
@@ -16,15 +41,27 @@ export interface TorrentStats {
 }
 
 export class TorrentPlayer {
-  private client: WebTorrent.Instance;
-  private currentTorrent: Torrent | null = null;
+  private client: any;
+  private currentTorrent: WTTorrent | null = null;
   private video: HTMLVideoElement;
   private statsInterval: number | null = null;
   private onStatsUpdate?: (stats: TorrentStats) => void;
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
-    this.client = new WebTorrent({
+  }
+
+  /**
+   * Load a magnet link or torrent URL
+   */
+  async load(magnetOrTorrentUrl: string, onStatsUpdate?: (stats: TorrentStats) => void): Promise<void> {
+    this.onStatsUpdate = onStatsUpdate;
+
+    console.log('Loading torrent:', magnetOrTorrentUrl);
+
+    await this.ensureWebTorrent();
+
+    this.client = new (window.WebTorrent as any)({
       tracker: {
         rtcConfig: {
           iceServers: [
@@ -35,20 +72,9 @@ export class TorrentPlayer {
       },
     });
 
-    console.log('WebTorrent client initialized');
-  }
-
-  /**
-   * Load a magnet link or torrent URL
-   */
-  load(magnetOrTorrentUrl: string, onStatsUpdate?: (stats: TorrentStats) => void): void {
-    this.onStatsUpdate = onStatsUpdate;
-
-    console.log('Loading torrent:', magnetOrTorrentUrl);
-
-    this.client.add(magnetOrTorrentUrl, (torrent) => {
+    this.client.add(magnetOrTorrentUrl, (torrent: WTTorrent) => {
       this.currentTorrent = torrent;
-      console.log('Torrent added:', torrent.name);
+      console.log('Torrent added');
 
       // Find the largest video file in the torrent
       const videoFile = this.findLargestVideoFile(torrent.files);
@@ -71,7 +97,7 @@ export class TorrentPlayer {
     });
 
     // Handle torrent errors
-    this.client.on('error', (err) => {
+    this.client.on('error', (err: unknown) => {
       console.error('WebTorrent error:', err);
     });
   }
@@ -79,7 +105,7 @@ export class TorrentPlayer {
   /**
    * Find the largest video file in the torrent
    */
-  private findLargestVideoFile(files: TorrentFile[]): TorrentFile | null {
+  private findLargestVideoFile(files: WTFile[]): WTFile | null {
     const videoExtensions = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.m4v', '.flv'];
 
     const videoFiles = files.filter((file) =>
@@ -183,13 +209,30 @@ export class TorrentPlayer {
 
     this.stopStatsCollection();
 
-    if (this.currentTorrent) {
-      this.currentTorrent.destroy();
-      this.currentTorrent = null;
-    }
+    // currentTorrent in browser API does not have destroy; client.destroy() suffices
+    this.currentTorrent = null;
 
     if (this.client) {
       this.client.destroy();
     }
+  }
+
+  private async ensureWebTorrent(): Promise<void> {
+    if (window.WebTorrent) return;
+    await this.injectScript(webtorrentUrl as string);
+    if (!window.WebTorrent) {
+      throw new Error('Failed to load WebTorrent browser bundle');
+    }
+  }
+
+  private injectScript(src: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+      document.head.appendChild(s);
+    });
   }
 }

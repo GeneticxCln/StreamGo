@@ -4,6 +4,7 @@ import { invoke } from './utils';
 import { escapeHtml } from './utils/security';
 import { Toast, Modal } from './ui-utils';
 import { setupLazyLoading } from './utils/imageLazyLoad';
+import { SearchHistory } from './search-history';
 
 // Re-export for backwards compatibility
 (window as any).escapeHtml = escapeHtml;
@@ -19,9 +20,33 @@ export class StreamGoApp {
     private currentStreams: any[] = [];
     private selectedStreamUrl: string | null = null;
     private currentSubtitles: any[] = [];
-    private discover = { mediaType: 'movie', catalogId: '', items: [] as any[], page: 0, pageSize: 20, loading: false, catalogs: [] as any[], skip: 0, hasMore: false };
+    private discover = { 
+        mediaType: 'movie', 
+        catalogId: '', 
+        items: [] as any[], 
+        page: 0, 
+        pageSize: 20, 
+        loading: false, 
+        catalogs: [] as any[], 
+        skip: 0, 
+        hasMore: false,
+        // Filter state
+        filters: {
+            genre: '',
+            search: '',
+            year: ''
+        },
+        currentCatalog: null as any
+    };
+    private searchHistory: SearchHistory;
+    private calendar = {
+        entries: [] as import('./types/tauri').CalendarEntry[],
+        daysAhead: 14,
+        loading: false,
+    };
 
     constructor() {
+        this.searchHistory = new SearchHistory();
         this.currentSection = 'home';
         this.previousSection = 'home';
         this.searchResults = [];
@@ -32,18 +57,65 @@ export class StreamGoApp {
         this.init();
     }
 
-    init() {
+    async init() {
         console.log('StreamGo initialized');
         this.setupEventListeners();
+        this.setupKeyboardShortcuts();
         this.attachDiscoverEventListeners();
         this.attachSubtitleSelectorListeners();
+        this.setupSearchHistory();
         this.initializeTheme();
         this.loadSettings();
         this.loadLibrary();
+        
+        // Auto-install default addons if none are installed (like Stremio does)
+        const installedDefault = await this.ensureDefaultAddons();
+        
         this.loadAddons();
         this.loadContinueWatching();
+        
         // Auto-start with a catalog like Stremio (Movies -> first catalog)
-        setTimeout(() => this.autoStartCatalog(), 300);
+        // Give more time if we just installed an addon
+        const delay = installedDefault ? 1000 : 300;
+        setTimeout(() => this.autoStartCatalog(), delay);
+    }
+
+    /**
+     * Ensure default addons are installed (Cinemeta)
+     * This runs on first launch to populate content like Stremio
+     * @returns true if addon was installed, false otherwise
+     */
+    private async ensureDefaultAddons(): Promise<boolean> {
+        try {
+            const addons = await invoke<any[]>('get_addons');
+            
+            // If user already has addons, don't auto-install
+            if (addons.length > 0) {
+                console.log('Addons already installed, skipping auto-install');
+                return false;
+            }
+
+            console.log('No addons found, installing default Cinemeta addon...');
+            
+            // Install Cinemeta (Stremio's official TMDB addon)
+            const cinemataUrl = 'https://v3-cinemeta.strem.io/manifest.json';
+            
+            try {
+                await invoke('install_addon', { manifest_url: cinemataUrl });
+                console.log('Default Cinemeta addon installed successfully');
+                
+                // Wait a bit for addon to be fully initialized
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                return true;
+            } catch (err) {
+                console.warn('Could not auto-install Cinemeta:', err);
+                return false;
+            }
+        } catch (err) {
+            console.error('Error checking/installing default addons:', err);
+            return false;
+        }
     }
 
     initializeTheme() {
@@ -130,6 +202,155 @@ export class StreamGoApp {
         }
     }
 
+    setupKeyboardShortcuts() {
+        // Global keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            const target = e.target as HTMLElement;
+            const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+            
+            // Video player shortcuts
+            const video = document.getElementById('video-player') as HTMLVideoElement;
+            const playerContainer = document.getElementById('video-player-container');
+            const isPlayerVisible = playerContainer && playerContainer.style.display !== 'none';
+            
+            if (isPlayerVisible && video) {
+                // Play/Pause - Space or K
+                if ((e.key === ' ' || e.key === 'k' || e.key === 'K') && !isInput) {
+                    e.preventDefault();
+                    if (video.paused) {
+                        video.play();
+                    } else {
+                        video.pause();
+                    }
+                    return;
+                }
+                
+                // Fullscreen - F
+                if ((e.key === 'f' || e.key === 'F') && !isInput) {
+                    e.preventDefault();
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else {
+                        playerContainer.requestFullscreen();
+                    }
+                    return;
+                }
+                
+                // Mute - M
+                if ((e.key === 'm' || e.key === 'M') && !isInput) {
+                    e.preventDefault();
+                    video.muted = !video.muted;
+                    return;
+                }
+                
+                // Picture-in-Picture - P
+                if ((e.key === 'p' || e.key === 'P') && !isInput) {
+                    e.preventDefault();
+                    const player = (window as any).player;
+                    if (player && player.togglePictureInPicture) {
+                        player.togglePictureInPicture();
+                    }
+                    return;
+                }
+                
+                // Seek backwards - Left Arrow
+                if (e.key === 'ArrowLeft' && !isInput) {
+                    e.preventDefault();
+                    video.currentTime = Math.max(0, video.currentTime - 10);
+                    return;
+                }
+                
+                // Seek forward - Right Arrow
+                if (e.key === 'ArrowRight' && !isInput) {
+                    e.preventDefault();
+                    video.currentTime = Math.min(video.duration, video.currentTime + 10);
+                    return;
+                }
+                
+                // Volume up - Up Arrow
+                if (e.key === 'ArrowUp' && !isInput) {
+                    e.preventDefault();
+                    video.volume = Math.min(1, video.volume + 0.1);
+                    return;
+                }
+                
+                // Volume down - Down Arrow
+                if (e.key === 'ArrowDown' && !isInput) {
+                    e.preventDefault();
+                    video.volume = Math.max(0, video.volume - 0.1);
+                    return;
+                }
+            }
+            
+            // Navigation shortcuts
+            // Focus search - /
+            if (e.key === '/' && !isInput) {
+                e.preventDefault();
+                const globalSearch = document.getElementById('global-search') as HTMLInputElement;
+                if (globalSearch) {
+                    globalSearch.focus();
+                }
+                return;
+            }
+            
+            // Show shortcuts help - ?
+            if (e.key === '?' && !isInput) {
+                e.preventDefault();
+                this.showShortcutsModal();
+                return;
+            }
+            
+            // Close player/modal - Escape
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                
+                // Close shortcuts modal
+                const shortcutsModal = document.getElementById('shortcuts-modal');
+                if (shortcutsModal && shortcutsModal.style.display !== 'none') {
+                    this.hideShortcutsModal();
+                    return;
+                }
+                
+                // Close player
+                if (isPlayerVisible) {
+                    this.closePlayer();
+                    return;
+                }
+                return;
+            }
+        });
+        
+        // Setup shortcuts modal close button
+        const closeBtn = document.getElementById('close-shortcuts-modal');
+        closeBtn?.addEventListener('click', () => {
+            this.hideShortcutsModal();
+        });
+    }
+
+    showShortcutsModal() {
+        const modal = document.getElementById('shortcuts-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.style.position = 'fixed';
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.right = '0';
+            modal.style.bottom = '0';
+            modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            modal.style.zIndex = '9999';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+            modal.style.backdropFilter = 'blur(4px)';
+        }
+    }
+
+    hideShortcutsModal() {
+        const modal = document.getElementById('shortcuts-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
     showSection(section: string): void {
         // Hide all sections
         document.querySelectorAll('.content-section').forEach(sec => {
@@ -170,14 +391,23 @@ export class StreamGoApp {
             this.loadSettings();
         } else if (section === 'diagnostics') {
             this.loadDiagnostics();
+        } else if (section === 'calendar') {
+            this.attachCalendarListeners();
+            this.loadCalendar();
         }
     }
 
     private attachDiscoverEventListeners() {
         const typeSelect = document.getElementById('discover-type-select') as HTMLSelectElement | null;
         const catalogSelect = document.getElementById('discover-catalog-select') as HTMLSelectElement | null;
-        const refreshBtn = document.getElementById('discover-refresh-btn') as HTMLButtonElement | null;
         const loadMoreBtn = document.getElementById('discover-load-more') as HTMLButtonElement | null;
+        
+        // Filter controls
+        const genreSelect = document.getElementById('discover-genre-select') as HTMLSelectElement | null;
+        const yearSelect = document.getElementById('discover-year-select') as HTMLSelectElement | null;
+        const searchInput = document.getElementById('discover-search-input') as HTMLInputElement | null;
+        const applyFiltersBtn = document.getElementById('discover-apply-filters-btn') as HTMLButtonElement | null;
+        const clearFiltersBtn = document.getElementById('discover-clear-filters-btn') as HTMLButtonElement | null;
 
         if (typeSelect) {
             typeSelect.addEventListener('change', () => {
@@ -185,24 +415,184 @@ export class StreamGoApp {
                 this.discover.catalogId = '';
                 this.discover.items = [];
                 this.discover.page = 0;
+                this.discover.currentCatalog = null;
                 this.loadDiscoverCatalogs();
             });
         }
+        
         if (catalogSelect) {
             catalogSelect.addEventListener('change', () => {
                 this.discover.catalogId = catalogSelect.value || '';
+                // Find and store current catalog
+                this.discover.currentCatalog = this.discover.catalogs.find((c: any) => c.id === this.discover.catalogId) || null;
+                // Update filter UI based on catalog capabilities
+                this.updateFilterUI();
+                // Auto-load when catalog changes
+                if (this.discover.catalogId) {
+                    this.loadDiscoverItems(true);
+                }
             });
         }
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
+        
+        if (applyFiltersBtn) {
+            applyFiltersBtn.addEventListener('click', () => {
+                // Collect filter values
+                if (genreSelect) this.discover.filters.genre = genreSelect.value;
+                if (yearSelect) this.discover.filters.year = yearSelect.value;
+                if (searchInput) this.discover.filters.search = searchInput.value.trim();
+                // Reload with filters
                 this.loadDiscoverItems(true);
             });
         }
+        
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', () => {
+                // Clear all filters
+                this.discover.filters.genre = '';
+                this.discover.filters.year = '';
+                this.discover.filters.search = '';
+                // Reset UI
+                if (genreSelect) genreSelect.value = '';
+                if (yearSelect) yearSelect.value = '';
+                if (searchInput) searchInput.value = '';
+                // Reload without filters
+                this.loadDiscoverItems(true);
+            });
+        }
+        
+        // Allow Enter key to apply filters in search
+        if (searchInput) {
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && applyFiltersBtn) {
+                    applyFiltersBtn.click();
+                }
+            });
+        }
+        
         if (loadMoreBtn) {
             loadMoreBtn.addEventListener('click', () => {
                 this.loadDiscoverItems(false);
             });
         }
+    }
+
+    private attachCalendarListeners() {
+        const daysSelect = document.getElementById('calendar-days') as HTMLSelectElement | null;
+        const refreshBtn = document.getElementById('calendar-refresh-btn') as HTMLButtonElement | null;
+        if (daysSelect && !daysSelect.dataset.bound) {
+            daysSelect.dataset.bound = '1';
+            daysSelect.addEventListener('change', () => {
+                const val = parseInt(daysSelect.value, 10);
+                this.calendar.daysAhead = isNaN(val) ? 14 : val;
+                this.loadCalendar();
+            });
+        }
+        if (refreshBtn && !refreshBtn.dataset.bound) {
+            refreshBtn.dataset.bound = '1';
+            refreshBtn.addEventListener('click', () => this.loadCalendar());
+        }
+    }
+
+    private setupSearchHistory() {
+        const globalSearchInput = document.getElementById('global-search') as HTMLInputElement;
+        const dropdown = document.getElementById('search-history-dropdown');
+        const clearAllBtn = document.getElementById('clear-history-btn');
+
+        if (!globalSearchInput || !dropdown) return;
+
+        // Show history on focus
+        globalSearchInput.addEventListener('focus', () => {
+            this.showSearchHistory();
+        });
+
+        // Hide history on blur (with delay to allow clicks)
+        globalSearchInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                this.hideSearchHistory();
+            }, 200);
+        });
+
+        // Clear all history
+        clearAllBtn?.addEventListener('click', () => {
+            this.searchHistory.clearAll();
+            this.renderSearchHistory();
+        });
+
+        // Initial render
+        this.renderSearchHistory();
+    }
+
+    private showSearchHistory() {
+        const dropdown = document.getElementById('search-history-dropdown');
+        if (dropdown && this.searchHistory.hasHistory()) {
+            dropdown.style.display = 'block';
+            this.renderSearchHistory();
+        }
+    }
+
+    private hideSearchHistory() {
+        const dropdown = document.getElementById('search-history-dropdown');
+        if (dropdown) {
+            dropdown.style.display = 'none';
+        }
+    }
+
+    private renderSearchHistory() {
+        const list = document.getElementById('search-history-list');
+        if (!list) return;
+
+        const history = this.searchHistory.getHistory();
+        
+        if (history.length === 0) {
+            list.innerHTML = '<div class="search-history-empty">No recent searches</div>';
+            return;
+        }
+
+        list.innerHTML = history.map(query => `
+            <div class="search-history-item" data-query="${escapeHtml(query)}">
+                <div class="search-history-item-text">
+                    <svg class="search-history-item-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+                    </svg>
+                    <span>${escapeHtml(query)}</span>
+                </div>
+                <button class="search-history-item-remove" data-query="${escapeHtml(query)}" title="Remove">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+
+        // Attach click handlers
+        list.querySelectorAll('.search-history-item').forEach(item => {
+            const query = (item as HTMLElement).dataset.query;
+            if (!query) return;
+
+            // Click on item text to search
+            const textEl = item.querySelector('.search-history-item-text');
+            textEl?.addEventListener('click', () => {
+                const globalSearchInput = document.getElementById('global-search') as HTMLInputElement;
+                if (globalSearchInput) {
+                    globalSearchInput.value = query;
+                }
+                this.hideSearchHistory();
+                this.showSection('search');
+                const searchInput = document.getElementById('search-input') as HTMLInputElement;
+                if (searchInput) {
+                    searchInput.value = query;
+                }
+                this.performSearch(query);
+            });
+
+            // Click on remove button
+            const removeBtn = item.querySelector('.search-history-item-remove');
+            removeBtn?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.searchHistory.removeQuery(query);
+                this.renderSearchHistory();
+            });
+        });
     }
 
     private async initDiscover() {
@@ -221,7 +611,9 @@ export class StreamGoApp {
         try {
             if (loading) loading.style.display = 'block';
             if (grid) grid.innerHTML = this.renderSkeletonGrid(8);
-            const catalogs = await invoke<any[]>('list_catalogs', { media_type: this.discover.mediaType });
+            console.log(`Loading catalogs for media type: ${this.discover.mediaType}`);
+            const catalogs = await invoke<any[]>('list_catalogs', { mediaType: this.discover.mediaType });
+            console.log(`Received ${catalogs?.length || 0} catalogs:`, catalogs);
             this.discover.catalogs = Array.isArray(catalogs) ? catalogs : [];
             if (catalogSelect) {
                 catalogSelect.innerHTML = '<option value="">Select a catalog...</option>' +
@@ -231,11 +623,17 @@ export class StreamGoApp {
                 if (first) {
                     catalogSelect.value = first.id;
                     this.discover.catalogId = first.id;
+                    this.discover.currentCatalog = first;
+                    console.log(`Preselected catalog: ${first.name} (${first.id})`);
+                    // Auto-load content for first catalog
+                    this.updateFilterUI();
+                    await this.loadDiscoverItems(true);
+                    return; // Skip setting empty message since we're loading content
                 } else {
                     this.discover.catalogId = '';
                 }
             }
-            // Reset grid and paging state
+            // Reset grid and paging state (only if no catalog was preselected)
             this.discover.items = [];
             this.discover.page = 0;
             this.discover.skip = 0;
@@ -243,8 +641,11 @@ export class StreamGoApp {
             if (grid) grid.innerHTML = '<p class="empty-message">Select a catalog to browse content</p>';
             if (loadMoreBtn) loadMoreBtn.style.display = 'none';
         } catch (err) {
-            console.error('Failed to load catalogs:', err);
+            console.error('Failed to load catalogs - FULL ERROR:', err);
+            console.error('Error type:', typeof err);
+            console.error('Error details:', JSON.stringify(err, null, 2));
             const errorMessage = String(err);
+            console.error('Error as string:', errorMessage);
             let userMessage = 'Unable to load catalogs';
 
             if (errorMessage.includes('No working addons available')) {
@@ -253,27 +654,72 @@ export class StreamGoApp {
                 userMessage = 'Content sources not loading';
             }
 
-            if (grid) grid.innerHTML = this.renderErrorState(userMessage, 'Please install addons from the Add-ons section first.');
+            if (grid) grid.innerHTML = this.renderErrorState(userMessage + '<br><small style="color: #ff6b6b; font-size: 12px; margin-top: 8px; display: block;">Debug: ' + escapeHtml(errorMessage) + '</small>', 'Please check the developer console for more details.');
         } finally {
             if (loading) loading.style.display = 'none';
         }
     }
 
     private async autoStartCatalog() {
-        try {
-            const catalogs = await invoke<any[]>('list_catalogs', { media_type: 'movie' });
-            if (Array.isArray(catalogs) && catalogs.length > 0) {
-                this.discover.mediaType = 'movie';
-                this.discover.catalogId = catalogs[0].id;
-                // Ensure Discover UI reflects selection
-                const catalogSelect = document.getElementById('discover-catalog-select') as HTMLSelectElement | null;
-                if (catalogSelect) catalogSelect.value = catalogs[0].id;
-                this.showSection('discover');
-                await this.loadDiscoverItems(true);
-            }
-        } catch (e) {
-            console.warn('Auto-start catalog failed:', e);
+        console.log('autoStartCatalog: Starting...');
+        
+        // Simply switch to discover section - it will auto-load the first catalog
+        this.showSection('discover');
+    }
+
+    /**
+     * Update filter UI based on current catalog capabilities
+     */
+    private updateFilterUI() {
+        const filtersPanel = document.getElementById('discover-filters-panel');
+        const genreContainer = document.getElementById('filter-genre-container');
+        const yearContainer = document.getElementById('filter-year-container');
+        const searchContainer = document.getElementById('filter-search-container');
+        const genreSelect = document.getElementById('discover-genre-select') as HTMLSelectElement | null;
+        const yearSelect = document.getElementById('discover-year-select') as HTMLSelectElement | null;
+        
+        if (!filtersPanel || !this.discover.currentCatalog) {
+            if (filtersPanel) filtersPanel.style.display = 'none';
+            return;
         }
+        
+        const catalog = this.discover.currentCatalog;
+        const extraSupported = catalog.extra_supported || [];
+        let hasAnyFilter = false;
+        
+        // Genre filter
+        if (genreContainer && genreSelect && catalog.genres && catalog.genres.length > 0) {
+            genreContainer.style.display = 'block';
+            genreSelect.innerHTML = '<option value="">All Genres</option>' +
+                catalog.genres.map((g: string) => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
+            hasAnyFilter = true;
+        } else if (genreContainer) {
+            genreContainer.style.display = 'none';
+        }
+        
+        // Search filter
+        if (searchContainer && extraSupported.includes('search')) {
+            searchContainer.style.display = 'block';
+            hasAnyFilter = true;
+        } else if (searchContainer) {
+            searchContainer.style.display = 'none';
+        }
+        
+        // Year filter (generate year list)
+        if (yearContainer && yearSelect) {
+            const currentYear = new Date().getFullYear();
+            const years = [];
+            for (let y = currentYear; y >= 1920; y--) {
+                years.push(y);
+            }
+            yearContainer.style.display = 'block';
+            yearSelect.innerHTML = '<option value="">All Years</option>' +
+                years.map(y => `<option value="${y}">${y}</option>`).join('');
+            hasAnyFilter = true;
+        }
+        
+        // Show/hide panel
+        filtersPanel.style.display = hasAnyFilter ? 'block' : 'none';
     }
 
     private async loadDiscoverItems(reset: boolean) {
@@ -300,8 +746,25 @@ export class StreamGoApp {
             }
             if (loading) loading.style.display = 'block';
             if (grid && reset) grid.innerHTML = this.renderSkeletonGrid(8);
-            const extras: any = { skip: String(this.discover.skip), limit: String(this.discover.pageSize) };
-            const result = await invoke<any>('aggregate_catalogs', { media_type: this.discover.mediaType, catalog_id: this.discover.catalogId, extra: extras });
+            
+            // Build extras with filters
+            const extras: any = { 
+                skip: String(this.discover.skip), 
+                limit: String(this.discover.pageSize) 
+            };
+            
+            // Add active filters to extras
+            if (this.discover.filters.genre) {
+                extras.genre = this.discover.filters.genre;
+            }
+            if (this.discover.filters.search) {
+                extras.search = this.discover.filters.search;
+            }
+            if (this.discover.filters.year) {
+                extras.genre = this.discover.filters.year; // Stremio uses 'genre' param for year filtering
+            }
+            
+            const result = await invoke<any>('aggregate_catalogs', { mediaType: this.discover.mediaType, catalogId: this.discover.catalogId, extra: extras });
             const metas = (result && Array.isArray(result.items)) ? result.items : [];
             const newItems = metas.map((m: any) => this.mapMetaPreviewToMediaItem(m));
             // Deduplicate by id
@@ -382,6 +845,92 @@ export class StreamGoApp {
         }
     }
 
+    private async loadCalendar() {
+        const container = document.getElementById('calendar-container');
+        if (!container) return;
+        try {
+            this.calendar.loading = true;
+            container.innerHTML = '<div class="loading-spinner">Loading calendar...</div>';
+            const entries = await invoke<import('./types/tauri').CalendarEntry[]>('get_calendar', { days_ahead: this.calendar.daysAhead });
+            this.calendar.entries = Array.isArray(entries) ? entries : [];
+            this.renderCalendar();
+        } catch (err) {
+            console.error('Failed to load calendar:', err);
+            container.innerHTML = this.renderErrorState('Unable to load calendar', 'Please try again later.', 'app.loadCalendar()');
+        } finally {
+            this.calendar.loading = false;
+        }
+    }
+
+    private renderCalendar() {
+        const container = document.getElementById('calendar-container');
+        if (!container) return;
+        const entries = this.calendar.entries;
+        if (!entries || entries.length === 0) {
+            container.innerHTML = '<p class="empty-message">No upcoming episodes found for the selected range.</p>';
+            return;
+        }
+        // Group by local date
+        const groups: Record<string, import('./types/tauri').CalendarEntry[]> = {};
+        entries.forEach(e => {
+            const d = new Date(e.air_date);
+            const key = d.toISOString().split('T')[0];
+            (groups[key] ||= []).push(e);
+        });
+        const orderedKeys = Object.keys(groups).sort();
+        const html = orderedKeys.map(key => {
+            const d = new Date(key + 'T00:00:00Z');
+            const title = this.formatRelativeDateClient(d);
+            const cards = groups[key]
+                .sort((a, b) => new Date(a.air_date).getTime() - new Date(b.air_date).getTime())
+                .map(e => this.renderCalendarCard(e))
+                .join('');
+            return `
+                <div class="calendar-day">
+                    <div class="calendar-day-header">
+                        <div class="calendar-day-title">${this.escape(title)}</div>
+                        <div class="calendar-day-date">${this.escape(key)}</div>
+                    </div>
+                    <div class="calendar-episodes">${cards}</div>
+                </div>
+            `;
+        }).join('');
+        container.innerHTML = html;
+    }
+
+    private renderCalendarCard(e: import('./types/tauri').CalendarEntry) {
+        const poster = this.escape(e.poster_url || 'https://via.placeholder.com/160x240?text=No+Poster');
+        const series = this.escape(e.series_name);
+        const epTitle = this.escape(e.title);
+        const se = `S${e.season}E${e.episode}`;
+        const time = new Date(e.air_date).toLocaleString();
+        const desc = e.description ? `<div class="calendar-card-desc">${this.escape(e.description)}</div>` : '';
+        return `
+            <div class="calendar-card">
+                <img src="${poster}" alt="${series}" class="calendar-card-poster" loading="lazy" />
+                <div class="calendar-card-body">
+                    <div class="calendar-card-title">${series}</div>
+                    <div class="calendar-card-meta">${se} • ${this.escape(epTitle)}</div>
+                    <div class="calendar-card-meta">${this.escape(time)}</div>
+                    ${desc}
+                </div>
+            </div>
+        `;
+    }
+
+    private formatRelativeDateClient(date: Date): string {
+        const today = new Date();
+        const d0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const d1 = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        const diffDays = Math.round((d1.getTime() - d0.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays === 0) return 'Today';
+        if (diffDays === 1) return 'Tomorrow';
+        if (diffDays > 1 && diffDays < 7) return date.toLocaleDateString(undefined, { weekday: 'long' });
+        return date.toLocaleDateString();
+    }
+
+    private escape(s: string): string { return escapeHtml(String(s)); }
+
     async performSearch(query: string): Promise<void> {
         const resultsEl = document.getElementById('search-results');
 
@@ -404,6 +953,9 @@ export class StreamGoApp {
                 );
                 return;
             }
+
+            // Save successful search to history
+            this.searchHistory.addQuery(query);
 
             resultsEl.innerHTML = results.map(item => this.renderMediaCard(item, true)).join('');
 
@@ -962,6 +1514,9 @@ export class StreamGoApp {
         this.setIfExists('player-engine-select', this.settings.player_engine);
         this.setCheckboxIfExists('logging-toggle', this.settings.debug_logging);
         this.setCheckboxIfExists('analytics-toggle', this.settings.analytics);
+        
+        // Notifications
+        this.setCheckboxIfExists('notifications-toggle', this.settings.notifications_enabled);
     }
 
     setIfExists(id: string, value: string | undefined): void {
@@ -980,7 +1535,7 @@ export class StreamGoApp {
             version: 1,
             theme: (document.getElementById('theme-select') as HTMLSelectElement)?.value || 'auto',
             language: 'en',
-            notifications_enabled: true,
+            notifications_enabled: (document.getElementById('notifications-toggle') as HTMLInputElement)?.checked ?? true,
             auto_update: true,
             autoplay: true,
             quality: 'auto',
@@ -1055,6 +1610,113 @@ export class StreamGoApp {
                 console.error('Error clearing cache:', err);
                 Toast.error(`Error clearing cache: ${err}`);
             }
+        }
+    }
+
+    async exportUserData(): Promise<void> {
+        try {
+            const data = await invoke('export_user_data');
+            
+            // Create JSON file and download
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            const timestamp = new Date().toISOString().split('T')[0];
+            a.download = `streamgo-backup-${timestamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            Toast.success('Data exported successfully!');
+        } catch (err) {
+            console.error('Error exporting data:', err);
+            Toast.error(`Error exporting data: ${err}`);
+        }
+    }
+
+    triggerImportDialog(): void {
+        const fileInput = document.getElementById('import-data-file') as HTMLInputElement;
+        if (fileInput) {
+            fileInput.click();
+        }
+    }
+
+    async importUserData(event: Event): Promise<void> {
+        const input = event.target as HTMLInputElement;
+        const file = input.files?.[0];
+        
+        if (!file) return;
+        
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            
+            const confirmed = await Modal.confirm(
+                'Are you sure you want to import this data? This will merge with your existing library and settings.',
+                'Import Data'
+            );
+            
+            if (!confirmed) {
+                input.value = ''; // Reset file input
+                return;
+            }
+            
+            await invoke('import_user_data', { data });
+            
+            Toast.success('Data imported successfully! Reloading...');
+            
+            // Reload app data
+            await this.loadLibrary();
+            await this.loadSettings();
+            await this.loadAddons();
+            
+            input.value = ''; // Reset file input
+        } catch (err) {
+            console.error('Error importing data:', err);
+            Toast.error(`Error importing data: ${err}`);
+            input.value = ''; // Reset file input
+        }
+    }
+
+    async checkNewEpisodes(): Promise<void> {
+        try {
+            Toast.info('Checking for new episodes...');
+            
+            const newEpisodes = await invoke<any[]>('check_new_episodes');
+            
+            if (newEpisodes.length === 0) {
+                Toast.success('No new episodes found');
+                return;
+            }
+            
+            // Show notification for each new episode
+            for (const ep of newEpisodes) {
+                const title = `New Episode: ${ep.series_name}`;
+                const body = `S${ep.season}E${ep.episode}: ${ep.title || 'Available now!'}`;
+                
+                try {
+                    // Use browser Notification API
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        new Notification(title, { body, icon: ep.poster_url });
+                    } else if ('Notification' in window && Notification.permission !== 'denied') {
+                        const permission = await Notification.requestPermission();
+                        if (permission === 'granted') {
+                            new Notification(title, { body, icon: ep.poster_url });
+                        }
+                    }
+                } catch (notifErr) {
+                    console.warn('Could not show notification:', notifErr);
+                }
+            }
+            
+            Toast.success(`Found ${newEpisodes.length} new episode${newEpisodes.length > 1 ? 's' : ''}!`);
+        } catch (err) {
+            console.error('Error checking for new episodes:', err);
+            Toast.error(`Error checking episodes: ${err}`);
         }
     }
 
@@ -1182,10 +1844,11 @@ export class StreamGoApp {
         // Attach action listeners for detail buttons
         this.attachDetailActionListeners();
         
-        // Append streams section and load streams
+        // Append enhanced sections
         try {
             const dc = document.getElementById('detail-content');
             if (dc) {
+                // Streams section
                 const streamsSection = document.createElement('div');
                 streamsSection.id = 'streams-container';
                 streamsSection.innerHTML = `
@@ -1199,14 +1862,192 @@ export class StreamGoApp {
                 dc.appendChild(streamsSection);
                 this.selectedStreamUrl = null;
                 this.loadStreamsForMedia(media);
-                // Subtitle URL selection removed
                 this.loadSubtitlesForMedia(media);
+                
+                // Enhanced metadata sections
+                this.loadEnhancedMetadata(media);
+                this.loadSimilarContent(media);
             }
         } catch (e) {
-            console.warn('Failed to render streams section:', e);
+            console.warn('Failed to render enhanced sections:', e);
         }
         // After injecting detail images, initialize lazy loading for them
         setupLazyLoading('#detail-hero img[data-src], #detail-content img[data-src]');
+    }
+
+    private async loadEnhancedMetadata(media: MediaItem): Promise<void> {
+        const dc = document.getElementById('detail-content');
+        if (!dc) return;
+        
+        try {
+            const typeStr = this.getMediaTypeString(media.media_type);
+            const metaResponse = await invoke<any>('get_addon_meta', { content_id: media.id, media_type: typeStr });
+            
+            // Cast & Crew Section
+            if (metaResponse.cast && metaResponse.cast.length > 0) {
+                const castSection = document.createElement('div');
+                castSection.className = 'settings-section';
+                const castList = Array.isArray(metaResponse.cast) ? metaResponse.cast : [];
+                castSection.innerHTML = `
+                    <h3>🎭 Cast & Crew</h3>
+                    <div class="cast-list">
+                        ${castList.slice(0, 12).map((person: any) => {
+                            const name = typeof person === 'string' ? person : (person.name || person.actor || 'Unknown');
+                            // Cinemeta may provide actor data with photos
+                            const photoUrl = person?.photo || person?.image || null;
+                            return `
+                                <div class="cast-item">
+                                    ${photoUrl ? `
+                                        <div class="cast-photo-wrapper">
+                                            <img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(name)}" class="cast-photo" loading="lazy" />
+                                        </div>
+                                    ` : `
+                                        <div class="cast-photo-placeholder">
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor" opacity="0.3">
+                                                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                                            </svg>
+                                        </div>
+                                    `}
+                                    <div class="cast-name">${escapeHtml(name)}</div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                dc.appendChild(castSection);
+            }
+            
+            // Trailers Section
+            if (metaResponse.trailers && metaResponse.trailers.length > 0) {
+                const trailersSection = document.createElement('div');
+                trailersSection.className = 'settings-section';
+                trailersSection.innerHTML = `
+                    <h3>🎬 Trailers</h3>
+                    <div class="trailers-list">
+                        ${metaResponse.trailers.slice(0, 3).map((trailer: any) => {
+                            const youtubeId = trailer.source?.split('youtube:')?.[1] || trailer.source;
+                            if (youtubeId && youtubeId.length > 5) {
+                                return `
+                                    <div class="trailer-item">
+                                        <iframe 
+                                            width="100%" 
+                                            height="315" 
+                                            src="https://www.youtube.com/embed/${escapeHtml(youtubeId)}" 
+                                            frameborder="0" 
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                            allowfullscreen
+                                            loading="lazy"
+                                        ></iframe>
+                                        <div class="trailer-title">${escapeHtml(trailer.type || 'Trailer')}</div>
+                                    </div>
+                                `;
+                            }
+                            return '';
+                        }).join('')}
+                    </div>
+                `;
+                dc.appendChild(trailersSection);
+            }
+            
+            // External Links Section
+            if (metaResponse.links && metaResponse.links.length > 0) {
+                const linksSection = document.createElement('div');
+                linksSection.className = 'settings-section';
+                linksSection.innerHTML = `
+                    <h3>🔗 External Links</h3>
+                    <div class="external-links">
+                        ${metaResponse.links.map((link: any) => `
+                            <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" class="external-link-btn">
+                                ${escapeHtml(link.name)}
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+                                </svg>
+                            </a>
+                        `).join('')}
+                    </div>
+                `;
+                dc.appendChild(linksSection);
+            }
+        } catch (err) {
+            console.debug('Enhanced metadata not available:', err);
+        }
+    }
+
+    private async loadSimilarContent(media: MediaItem): Promise<void> {
+        const dc = document.getElementById('detail-content');
+        if (!dc) return;
+        
+        try {
+            const typeStr = this.getMediaTypeString(media.media_type);
+            // Get first genre for recommendations
+            const genre = media.genre?.[0];
+            if (!genre) return;
+            
+            // Query catalogs with same genre
+            const catalogs = await invoke<any[]>('list_catalogs', { mediaType: typeStr });
+            if (!catalogs || catalogs.length === 0) return;
+            
+            const firstCatalog = catalogs[0];
+            const extras = { genre, skip: '0', limit: '10' };
+            const result = await invoke<any>('aggregate_catalogs', { 
+                mediaType: typeStr, 
+                catalogId: firstCatalog.id, 
+                extra: extras 
+            });
+            
+            const similar = result.items?.filter((item: any) => item.id !== media.id).slice(0, 10) || [];
+            
+            if (similar.length > 0) {
+                const similarSection = document.createElement('div');
+                similarSection.className = 'settings-section';
+                similarSection.innerHTML = `
+                    <h3>💡 You May Also Like</h3>
+                    <div class="similar-content">
+                        ${similar.map((item: any) => {
+                            const posterUrl = escapeHtml(item.poster || 'https://via.placeholder.com/200x300?text=No+Poster');
+                            return `
+                                <div class="similar-item" data-id="${escapeHtml(item.id)}">
+                                    <img src="${posterUrl}" alt="${escapeHtml(item.name)}" class="similar-poster" loading="lazy" />
+                                    <div class="similar-title">${escapeHtml(item.name)}</div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                dc.appendChild(similarSection);
+                
+                // Attach click listeners for similar items
+                similarSection.querySelectorAll('.similar-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const id = (item as HTMLElement).dataset.id;
+                        if (id) {
+                            // Convert addon preview to MediaItem and navigate
+                            const similarItem = similar.find((s: any) => s.id === id);
+                            if (similarItem) {
+                                const mediaItem = this.mapMetaPreviewToMediaItem(similarItem);
+                                this.mediaMap[mediaItem.id] = mediaItem;
+                                this.showMediaDetail(mediaItem.id);
+                            }
+                        }
+                    });
+                });
+            }
+        } catch (err) {
+            console.debug('Similar content not available:', err);
+        }
+    }
+
+    private getMediaTypeString(mediaType: any): string {
+        if (typeof mediaType === 'string') return mediaType.toLowerCase();
+        if (mediaType && typeof mediaType === 'object') {
+            if ('Movie' in mediaType) return 'movie';
+            if ('TvShow' in mediaType) return 'series';
+            if ('Episode' in mediaType) return 'episode';
+            if ('Documentary' in mediaType) return 'movie';
+            if ('LiveTv' in mediaType) return 'live';
+            if ('Podcast' in mediaType) return 'podcast';
+        }
+        return 'movie';
     }
 
     private attachDetailActionListeners(): void {

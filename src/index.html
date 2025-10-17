@@ -53,6 +53,13 @@
                         </svg>
                     </a>
                 </li>
+                <li class="nav-item" data-section="calendar" title="Calendar">
+                    <a href="#calendar">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z"/>
+                        </svg>
+                    </a>
+                </li>
                 <li class="nav-item" data-section="playlists" title="Playlists">
                     <a href="#playlists">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -91,12 +98,21 @@
         </nav>
         <main class="main-content">
             <header class="main-header">
-                <div class="search-bar">
-                    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <div class="search-bar" style="position: relative;">
+                    <input type="text" id="global-search" placeholder="">
+                    <svg class="search-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
                     </svg>
-                    <input type="text" id="global-search" placeholder="Search movies and TV shows...">
                     <button id="global-search-btn" class="search-btn-hidden">Search</button>
+                    <div id="search-history-dropdown" class="search-history-dropdown" style="display: none;">
+                        <div class="search-history-header">
+                            <span>Recent searches</span>
+                            <button id="clear-history-btn" class="clear-history-btn">Clear all</button>
+                        </div>
+                        <div id="search-history-list" class="search-history-list">
+                            <!-- History items will be inserted here -->
+                        </div>
+                    </div>
                 </div>
             </header>
             <div class="content-area">
@@ -178,17 +194,55 @@
                 <section id="discover-section" class="content-section">
                     <div class="search-header">
                         <h2>Discover</h2>
-                        <div class="search-bar-large" style="gap: 12px;">
-                            <select id="discover-type-select" class="setting-select" style="max-width: 200px;">
-                                <option value="movie">Movies</option>
-                                <option value="series">Series</option>
+                        <div class="search-bar-large" style="gap: 12px; flex-wrap: wrap;">
+                            <select id="discover-type-select" class="setting-select" style="min-width: 150px;">
+                                <option value="movie">🎬 Movies</option>
+                                <option value="series">📺 Series</option>
+                                <option value="channel">📹 Channels</option>
+                                <option value="tv">📡 Live TV</option>
                             </select>
-                            <select id="discover-catalog-select" class="setting-select" style="flex: 1; max-width: 400px;">
+                            <select id="discover-catalog-select" class="setting-select" style="flex: 1; min-width: 250px;">
                                 <option value="">Select a catalog...</option>
                             </select>
-                            <button id="discover-refresh-btn" class="btn btn-primary">Browse</button>
+                        </div>
+                        
+                        <!-- Advanced Filters -->
+                        <div class="discover-filters" style="margin-top: 16px; display: none;" id="discover-filters-panel">
+                            <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                                <!-- Search within catalog -->
+                                <div style="flex: 1; min-width: 200px;" id="filter-search-container" style="display: none;">
+                                    <input 
+                                        type="text" 
+                                        id="discover-search-input" 
+                                        class="setting-select" 
+                                        placeholder="Search in catalog..." 
+                                        style="width: 100%;"
+                                    />
+                                </div>
+                                
+                                <!-- Genre filter -->
+                                <div style="min-width: 180px;" id="filter-genre-container" style="display: none;">
+                                    <select id="discover-genre-select" class="setting-select" style="width: 100%;">
+                                        <option value="">All Genres</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Year filter -->
+                                <div style="min-width: 140px;" id="filter-year-container" style="display: none;">
+                                    <select id="discover-year-select" class="setting-select" style="width: 100%;">
+                                        <option value="">All Years</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Apply/Clear buttons -->
+                                <div style="display: flex; gap: 8px;">
+                                    <button id="discover-apply-filters-btn" class="btn btn-primary">Apply Filters</button>
+                                    <button id="discover-clear-filters-btn" class="btn btn-secondary">Clear</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
+                    
                     <div id="discover-grid" class="movie-grid">
                         <p class="empty-message">Select a catalog to browse content</p>
                     </div>
@@ -208,6 +262,25 @@
                     </div>
                     <div id="library-grid" class="movie-grid">
                         <p class="empty-message">Your library is empty. Search for content and add it here!</p>
+                    </div>
+                </section>
+
+                <!-- Calendar Section -->
+                <section id="calendar-section" class="content-section">
+                    <div class="calendar-header">
+                        <h2>Calendar</h2>
+                        <div class="calendar-controls">
+                            <label for="calendar-days" class="calendar-label">Show</label>
+                            <select id="calendar-days" class="setting-select">
+                                <option value="7">Next 7 days</option>
+                                <option value="14" selected>Next 14 days</option>
+                                <option value="30">Next 30 days</option>
+                            </select>
+                            <button id="calendar-refresh-btn" class="btn btn-secondary">Refresh</button>
+                        </div>
+                    </div>
+                    <div id="calendar-container" class="calendar-container">
+                        <p class="empty-message">Upcoming episodes from your library will appear here.</p>
                     </div>
                 </section>
 
@@ -403,6 +476,64 @@
                     </div>
                 </section>
 
+                <!-- Keyboard Shortcuts Modal -->
+                <div id="shortcuts-modal" class="modal" style="display: none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>⌨️ Keyboard Shortcuts</h3>
+                            <button id="close-shortcuts-modal" class="close-btn">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="shortcuts-list">
+                            <div class="shortcuts-section">
+                                <h4>🎬 Video Playback</h4>
+                                <div class="shortcut-item">
+                                    <kbd>Space</kbd> or <kbd>K</kbd>
+                                    <span>Play / Pause</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>F</kbd>
+                                    <span>Toggle Fullscreen</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>M</kbd>
+                                    <span>Mute / Unmute</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>P</kbd>
+                                    <span>Picture-in-Picture</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>←</kbd> / <kbd>→</kbd>
+                                    <span>Seek -10s / +10s</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>↑</kbd> / <kbd>↓</kbd>
+                                    <span>Volume Up / Down</span>
+                                </div>
+                            </div>
+                            <div class="shortcuts-section">
+                                <h4>🧭 Navigation</h4>
+                                <div class="shortcut-item">
+                                    <kbd>/</kbd>
+                                    <span>Focus Search</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>Esc</kbd>
+                                    <span>Close Player / Modal</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>?</kbd>
+                                    <span>Show This Help</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Stream Picker Modal -->
                 <div id="stream-picker-modal" class="modal" style="display: none;">
                     <div class="modal-content">
@@ -436,6 +567,7 @@
                                     <option value="auto">Auto (System)</option>
                                     <option value="dark">Dark</option>
                                     <option value="light">Light</option>
+                                    <option value="amoled">AMOLED (True Dark)</option>
                                     <option value="dracula">Dracula</option>
                                     <option value="solarized-light">Solarized Light</option>
                                     <option value="solarized-dark">Solarized Dark</option>
@@ -663,6 +795,38 @@
                             </div>
                         </div>
 
+                        <!-- Notifications -->
+                        <div class="settings-section">
+                            <h3>🔔 Notifications</h3>
+                            <div class="setting-item">
+                                <label for="notifications-toggle">
+                                    <input type="checkbox" id="notifications-toggle" class="setting-checkbox" checked>
+                                    <span>Enable episode notifications</span>
+                                </label>
+                                <span class="setting-description">Get notified when new episodes of your library shows are available</span>
+                            </div>
+                            <div class="setting-item">
+                                <button class="btn btn-secondary" id="check-episodes-now-btn">🔄 Check Now</button>
+                                <span class="setting-description">Manually check for new episodes</span>
+                            </div>
+                        </div>
+
+                        <!-- Data Management -->
+                        <div class="settings-section">
+                            <h3>💾 Data Management</h3>
+                            <div class="setting-item">
+                                <label>Export Your Data</label>
+                                <button class="btn btn-primary" id="export-data-btn">📤 Export Data</button>
+                                <span class="setting-description">Download your library, watched history, and settings as JSON</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Import Data</label>
+                                <input type="file" id="import-data-file" accept=".json" style="display: none;" />
+                                <button class="btn btn-secondary" id="import-data-btn">📥 Import Data</button>
+                                <span class="setting-description">Restore from a previously exported JSON file</span>
+                            </div>
+                        </div>
+
                         <div class="settings-actions">
                             <button class="btn btn-primary" id="settings-save-btn">💾 Save Settings</button>
                             <button class="btn btn-secondary" id="settings-reset-btn">🔄 Reset to Defaults</button>
@@ -680,6 +844,122 @@
             </div>
         </main>
     </div>
+    
+    <!-- Onboarding Modal -->
+    <div id="onboarding-modal" class="onboarding-modal" style="display: none;">
+        <div class="onboarding-content">
+            <!-- Step 1: Welcome -->
+            <div class="onboarding-step" data-step="1">
+                <div class="onboarding-icon">🎬</div>
+                <h2>Welcome to StreamGo!</h2>
+                <p class="onboarding-description">
+                    Your modern media center for discovering and watching movies and TV shows.
+                    Let's get you set up in just a few steps.
+                </p>
+                <div class="onboarding-actions">
+                    <button class="btn btn-primary onboarding-next">Get Started</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Install Default Addon -->
+            <div class="onboarding-step" data-step="2" style="display: none;">
+                <div class="onboarding-icon">📦</div>
+                <h2>Install Content Source</h2>
+                <p class="onboarding-description">
+                    StreamGo uses addons to provide content. We'll install Cinemeta,
+                    the official addon that provides movie and TV show information from TMDB.
+                </p>
+                <div class="onboarding-addon-preview">
+                    <div class="addon-preview-card">
+                        <h3>Cinemeta</h3>
+                        <p>Official TMDB addon with comprehensive movie and TV data</p>
+                        <div class="addon-features">
+                            <span class="feature-badge">🎬 Movies</span>
+                            <span class="feature-badge">📺 TV Shows</span>
+                            <span class="feature-badge">⭐ Ratings</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="onboarding-actions">
+                    <button class="btn btn-secondary onboarding-back">Back</button>
+                    <button class="btn btn-primary onboarding-install-addon">Install & Continue</button>
+                </div>
+            </div>
+
+            <!-- Step 3: Pick Genres -->
+            <div class="onboarding-step" data-step="3" style="display: none;">
+                <div class="onboarding-icon">🎭</div>
+                <h2>Choose Your Favorites</h2>
+                <p class="onboarding-description">
+                    Select the genres you enjoy to help us personalize your experience.
+                </p>
+                <div class="onboarding-genres">
+                    <button class="genre-pill" data-genre="action">Action</button>
+                    <button class="genre-pill" data-genre="adventure">Adventure</button>
+                    <button class="genre-pill" data-genre="animation">Animation</button>
+                    <button class="genre-pill" data-genre="comedy">Comedy</button>
+                    <button class="genre-pill" data-genre="crime">Crime</button>
+                    <button class="genre-pill" data-genre="documentary">Documentary</button>
+                    <button class="genre-pill" data-genre="drama">Drama</button>
+                    <button class="genre-pill" data-genre="fantasy">Fantasy</button>
+                    <button class="genre-pill" data-genre="horror">Horror</button>
+                    <button class="genre-pill" data-genre="mystery">Mystery</button>
+                    <button class="genre-pill" data-genre="romance">Romance</button>
+                    <button class="genre-pill" data-genre="sci-fi">Sci-Fi</button>
+                    <button class="genre-pill" data-genre="thriller">Thriller</button>
+                    <button class="genre-pill" data-genre="western">Western</button>
+                </div>
+                <div class="onboarding-actions">
+                    <button class="btn btn-secondary onboarding-back">Back</button>
+                    <button class="btn btn-primary onboarding-next">Continue</button>
+                </div>
+            </div>
+
+            <!-- Step 4: Quick Tour -->
+            <div class="onboarding-step" data-step="4" style="display: none;">
+                <div class="onboarding-icon">🧭</div>
+                <h2>Quick Tour</h2>
+                <div class="onboarding-tour">
+                    <div class="tour-item">
+                        <div class="tour-icon">🔍</div>
+                        <h3>Search</h3>
+                        <p>Find movies and TV shows instantly</p>
+                    </div>
+                    <div class="tour-item">
+                        <div class="tour-icon">🌟</div>
+                        <h3>Discover</h3>
+                        <p>Browse catalogs from your addons</p>
+                    </div>
+                    <div class="tour-item">
+                        <div class="tour-icon">📚</div>
+                        <h3>Library</h3>
+                        <p>Save your favorites to watch later</p>
+                    </div>
+                    <div class="tour-item">
+                        <div class="tour-icon">⌨️</div>
+                        <h3>Shortcuts</h3>
+                        <p>Press <kbd>?</kbd> to see keyboard shortcuts</p>
+                    </div>
+                </div>
+                <div class="onboarding-actions">
+                    <button class="btn btn-secondary onboarding-back">Back</button>
+                    <button class="btn btn-primary onboarding-finish">Start Using StreamGo</button>
+                </div>
+            </div>
+
+            <!-- Progress Indicator -->
+            <div class="onboarding-progress">
+                <div class="progress-dot active" data-dot="1"></div>
+                <div class="progress-dot" data-dot="2"></div>
+                <div class="progress-dot" data-dot="3"></div>
+                <div class="progress-dot" data-dot="4"></div>
+            </div>
+
+            <!-- Skip Button -->
+            <button class="onboarding-skip">Skip Setup</button>
+        </div>
+    </div>
+    
     <script type="module" src="/main.ts"></script>
 </body>
 </html>

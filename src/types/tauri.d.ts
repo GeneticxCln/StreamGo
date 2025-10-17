@@ -271,6 +271,20 @@ export interface DiagnosticsInfo {
   metrics: PerformanceMetrics;
 }
 
+// Calendar
+export interface CalendarEntry {
+  series_id: string;
+  series_name: string;
+  episode_id: string;
+  season: number;
+  episode: number;
+  title: string;
+  air_date: string; // RFC3339 timestamp
+  poster_url?: string;
+  backdrop_url?: string;
+  description?: string;
+}
+
 // Tauri Command Definitions
 export interface TauriCommands {
   // Library
@@ -338,6 +352,9 @@ export interface TauriCommands {
   export_diagnostics: { args: {}; return: DiagnosticsInfo };
   export_diagnostics_file: { args: {}; return: string };
   reset_performance_metrics: { args: {}; return: void };
+
+  // Calendar
+  get_calendar: { args: { days_ahead?: number }; return: CalendarEntry[] };
 }
 
 // Global Tauri API

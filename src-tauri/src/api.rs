@@ -186,7 +186,10 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
     let base = if addon_url.ends_with("/manifest.json") {
         addon_url.trim_end_matches("/manifest.json").to_string()
     } else if addon_url.ends_with("manifest.json") {
-        addon_url.trim_end_matches("manifest.json").trim_end_matches('/').to_string()
+        addon_url
+            .trim_end_matches("manifest.json")
+            .trim_end_matches('/')
+            .to_string()
     } else {
         addon_url.trim_end_matches('/').to_string()
     };
@@ -218,11 +221,7 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
         })
         .collect();
 
-    let types: Vec<String> = p_manifest
-        .types
-        .iter()
-        .map(|t| t.0.clone())
-        .collect();
+    let types: Vec<String> = p_manifest.types.iter().map(|t| t.0.clone()).collect();
 
     let catalogs: Vec<Catalog> = p_manifest
         .catalogs
@@ -287,17 +286,17 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
 /// These are actual production addons with real manifests
 pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
     log::info!("Fetching real Stremio community addons...");
-    
+
     // Real, working Stremio community addon URLs
     let addon_urls = vec![
-        "https://v3-cinemeta.strem.io/manifest.json",  // Official TMDB metadata
+        "https://v3-cinemeta.strem.io/manifest.json", // Official TMDB metadata
         "https://opensubtitles.strem.io/manifest.json", // OpenSubtitles
-        "https://watchhub.strem.io/manifest.json",      // WatchHub aggregator
+        "https://watchhub.strem.io/manifest.json",    // WatchHub aggregator
     ];
-    
+
     let mut addons = Vec::new();
     let mut priority = 10; // Start with high priority
-    
+
     for url in addon_urls {
         match install_addon(url).await {
             Ok(mut addon) => {
@@ -312,12 +311,14 @@ pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
             }
         }
     }
-    
+
     if addons.is_empty() {
         log::error!("Failed to install any built-in addons");
-        return Err(anyhow!("No built-in addons could be installed. Check network connectivity."));
+        return Err(anyhow!(
+            "No built-in addons could be installed. Check network connectivity."
+        ));
     }
-    
+
     log::info!("Successfully installed {} built-in addons", addons.len());
     Ok(addons)
 }

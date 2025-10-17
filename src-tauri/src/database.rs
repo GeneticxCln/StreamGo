@@ -226,11 +226,8 @@ impl Database {
         })?;
 
         let mut addons = Vec::new();
-        for addon in addon_iter {
-            // Skip any rows that failed to parse cleanly
-            if let Ok(a) = addon {
-                addons.push(a);
-            }
+        for a in addon_iter.flatten() {
+            addons.push(a);
         }
         Ok(addons)
     }
@@ -595,18 +592,39 @@ impl Database {
         &self,
         filters: &crate::models::SearchFilters,
     ) -> Result<Vec<MediaItem>, anyhow::Error> {
-        let mut query = String::from(
-            "SELECT id, title, media_type, year, genre, description, poster_url, backdrop_url, 
-                    rating, duration, added_to_library, watched, progress 
-             FROM media_items WHERE 1=1",
-        );
+        let use_fts = filters.query.as_ref().map_or(false, |q| !q.is_empty());
+        
+        let mut query = if use_fts {
+            // Use FTS5 for full-text search with BM25 ranking
+            String::from(
+                "SELECT m.id, m.title, m.media_type, m.year, m.genre, m.description, m.poster_url, m.backdrop_url, 
+                        m.rating, m.duration, m.added_to_library, m.watched, m.progress, fts.rank 
+                 FROM media_items m
+                 INNER JOIN media_items_fts fts ON m.rowid = fts.rowid
+                 WHERE fts.media_items_fts MATCH ?1",
+            )
+        } else {
+            String::from(
+                "SELECT id, title, media_type, year, genre, description, poster_url, backdrop_url, 
+                        rating, duration, added_to_library, watched, progress, 0 as rank 
+                 FROM media_items WHERE 1=1",
+            )
+        };
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
         // Text search
         if let Some(q) = &filters.query {
             if !q.is_empty() {
-                query.push_str(" AND (title LIKE ?1 OR description LIKE ?1)");
-                params.push(Box::new(format!("%{}%", q)));
+                if use_fts {
+                    // FTS5 query syntax - escape special characters and build query
+                    // For simple queries, search in all fields
+                    let fts_query = format!("{{{}}}", q); // {} searches across all columns
+                    params.push(Box::new(fts_query));
+                } else {
+                    // Fallback LIKE search (shouldn't reach here)
+                    query.push_str(" AND (title LIKE ?1 OR description LIKE ?1)");
+                    params.push(Box::new(format!("%{}%", q)));
+                }
             }
         }
 
@@ -664,15 +682,21 @@ impl Database {
             query.push_str(&format!(" AND watched = {}", if watched { 1 } else { 0 }));
         }
 
-        // Sorting
-        let sort_clause = match filters.sort_by.as_deref() {
-            Some("title_asc") => " ORDER BY title ASC",
-            Some("title_desc") => " ORDER BY title DESC",
-            Some("year_asc") => " ORDER BY year ASC",
-            Some("year_desc") => " ORDER BY year DESC",
-            Some("rating_desc") => " ORDER BY rating DESC",
-            Some("added_desc") => " ORDER BY added_to_library DESC",
-            _ => " ORDER BY added_to_library DESC", // Default
+        // Sorting - use BM25 rank when FTS search is active
+        let sort_clause = if use_fts && filters.sort_by.is_none() {
+            // Default to BM25 relevance when searching
+            " ORDER BY rank"
+        } else {
+            match filters.sort_by.as_deref() {
+                Some("title_asc") => " ORDER BY title ASC",
+                Some("title_desc") => " ORDER BY title DESC",
+                Some("year_asc") => " ORDER BY year ASC",
+                Some("year_desc") => " ORDER BY year DESC",
+                Some("rating_desc") => " ORDER BY rating DESC",
+                Some("added_desc") => " ORDER BY added_to_library DESC",
+                Some("relevance") => " ORDER BY rank", // Explicit relevance sort
+                _ => " ORDER BY added_to_library DESC", // Default for non-FTS
+            }
         };
         query.push_str(sort_clause);
 

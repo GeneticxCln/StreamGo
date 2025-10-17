@@ -125,14 +125,17 @@ impl<'de> Deserialize<'de> for ResourceType {
                         map.next_value::<Value>()?;
                     }
                 }
-                
+
                 match name.as_deref() {
                     Some("catalog") => Ok(ResourceType::Catalog),
                     Some("stream") => Ok(ResourceType::Stream),
                     Some("meta") => Ok(ResourceType::Meta),
                     Some("subtitles") => Ok(ResourceType::Subtitles),
                     Some("addon_catalog") => Ok(ResourceType::AddonCatalog),
-                    Some(other) => Err(M::Error::custom(format!("unknown resource name: {}", other))),
+                    Some(other) => Err(M::Error::custom(format!(
+                        "unknown resource name: {}",
+                        other
+                    ))),
                     None => Err(M::Error::custom("missing 'name' field in resource object")),
                 }
             }
@@ -149,6 +152,100 @@ pub struct BehaviorHints {
     pub adult: bool,
     #[serde(default)]
     pub p2p: bool,
+}
+
+/// Custom deserializer for optional float that accepts both string and number
+fn deserialize_optional_float_string<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct FloatVisitor;
+
+    impl<'de> Visitor<'de> for FloatVisitor {
+        type Value = Option<f32>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string or number representing a float")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_any(FloatValueVisitor)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+    }
+
+    struct FloatValueVisitor;
+
+    impl<'de> Visitor<'de> for FloatValueVisitor {
+        type Value = Option<f32>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string or number representing a float")
+        }
+
+        fn visit_f32<E>(self, value: f32) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value))
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value as f32))
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value as f32))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value as f32))
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            // Handle empty strings as None
+            if value.trim().is_empty() {
+                return Ok(None);
+            }
+            value
+                .parse::<f32>()
+                .map(Some)
+                .map_err(|_| E::custom(format!("invalid float string: {}", value)))
+        }
+    }
+
+    deserializer.deserialize_option(FloatVisitor)
 }
 
 /// Catalog response - list of metadata items
@@ -177,7 +274,7 @@ pub struct MetaPreview {
     pub description: Option<String>,
     #[serde(default)]
     pub releaseInfo: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_float_string")]
     pub imdbRating: Option<f32>,
 }
 
@@ -229,7 +326,7 @@ pub struct MetaItem {
     pub cast: Vec<String>,
     #[serde(default)]
     pub writer: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_float_string")]
     pub imdbRating: Option<f32>,
     #[serde(default)]
     pub country: Option<String>,
@@ -343,6 +440,7 @@ pub struct Subtitle {
 }
 
 /// Episode ID parsing utilities for Stremio format
+#[allow(dead_code)]
 pub mod episode_id {
     /// Parse episode ID in Stremio format: "series_id:season:episode"
     /// Example: "tt1234567:1:5" -> ("tt1234567", 1, 5)
@@ -351,24 +449,24 @@ pub mod episode_id {
         if parts.len() < 3 {
             return None;
         }
-        
+
         let series_id = parts[0].to_string();
         let season = parts[1].parse().ok()?;
         let episode = parts[2].parse().ok()?;
-        
+
         Some((series_id, season, episode))
     }
-    
+
     /// Build episode ID from components
     pub fn build(series_id: &str, season: u32, episode: u32) -> String {
         format!("{}:{}:{}", series_id, season, episode)
     }
-    
+
     /// Check if ID is an episode ID (contains season:episode)
     pub fn is_episode_id(id: &str) -> bool {
         id.matches(':').count() >= 2
     }
-    
+
     /// Extract series ID from episode ID
     pub fn get_series_id(id: &str) -> Option<String> {
         id.split(':').next().map(|s| s.to_string())
@@ -529,7 +627,14 @@ impl AddonClient {
             }
         }
 
-        tracing::info!(url = %url, "Fetching catalog");
+        tracing::info!(
+            url = %url,
+            base_url = %self.base_url,
+            media_type = %media_type,
+            catalog_id = %catalog_id,
+            extra_params = ?extra,
+            "Fetching catalog"
+        );
 
         let client = self.client.clone();
         let url_clone = url.clone();
@@ -713,10 +818,7 @@ impl AddonClient {
         media_type: &str,
         media_id: &str,
     ) -> Result<MetaResponse, AddonError> {
-        let url = format!(
-            "{}/meta/{}/{}.json",
-            self.base_url, media_type, media_id
-        );
+        let url = format!("{}/meta/{}/{}.json", self.base_url, media_type, media_id);
 
         tracing::info!(url = %url, "Fetching meta");
 
@@ -981,8 +1083,7 @@ impl AddonClient {
             if extra.options.len() > MAX_EXTRA_OPTIONS {
                 return Err(AddonError::ValidationError(format!(
                     "Extra field '{}' has too many options (max {})",
-                    extra.name,
-                    MAX_EXTRA_OPTIONS
+                    extra.name, MAX_EXTRA_OPTIONS
                 )));
             }
 

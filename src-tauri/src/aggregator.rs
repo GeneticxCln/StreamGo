@@ -213,6 +213,14 @@ impl ContentAggregator {
         cache: &Option<Arc<Mutex<CacheManager>>>,
     ) -> (Vec<MetaPreview>, SourceHealth) {
         let start = Instant::now();
+        
+        tracing::debug!(
+            addon_id = %addon.id,
+            addon_url = %addon.url,
+            media_type = %media_type,
+            catalog_id = %catalog_id,
+            "Starting addon query"
+        );
 
         // Generate cache key
         let cache_key = format!(

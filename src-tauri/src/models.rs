@@ -65,7 +65,7 @@ pub struct AddonManifest {
     pub version: String,
     pub description: String,
     pub resources: Vec<String>, // Stored as strings for database compatibility
-    pub types: Vec<String>,    // Stored as strings for database compatibility
+    pub types: Vec<String>,     // Stored as strings for database compatibility
     pub catalogs: Vec<Catalog>,
 }
 
@@ -168,6 +168,10 @@ pub struct UserPreferences {
     pub notifications_enabled: bool,
     #[serde(default = "default_true")]
     pub auto_update: bool,
+    
+    // Notification tracking
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_notification_check: Option<String>, // RFC3339 timestamp
 
     // Telemetry
     #[serde(default)]
@@ -277,6 +281,7 @@ impl Default for UserPreferences {
             // General
             notifications_enabled: default_true(),
             auto_update: default_true(),
+            last_notification_check: None,
             // Telemetry
             telemetry_enabled: false,
         }

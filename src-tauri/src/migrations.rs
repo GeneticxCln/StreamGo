@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 /// Migration trait for implementing version upgrades
 pub trait Migration {
@@ -384,7 +384,7 @@ impl Migration for Migration004ValidateAddonUrls {
             "DELETE FROM addons WHERE url IS NULL OR url = '' OR url = 'built-in' OR url NOT LIKE 'http%'",
             [],
         )?;
-        
+
         tracing::info!("Cleaned up addons with invalid URLs");
         Ok(())
     }
@@ -479,6 +479,74 @@ impl Migration for Migration006AddonConfig {
     }
 }
 
+/// Migration v7: Add FTS5 full-text search for library items
+struct Migration007FTS5Search;
+
+impl Migration for Migration007FTS5Search {
+    fn version(&self) -> u32 {
+        7
+    }
+
+    fn description(&self) -> &str {
+        "Add FTS5 virtual table for fast full-text search of library items"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Create FTS5 virtual table for full-text search
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS media_items_fts USING fts5(
+                title, 
+                description, 
+                genre,
+                content='media_items',
+                content_rowid='rowid'
+            )",
+            [],
+        )?;
+
+        // Populate FTS table from existing data
+        conn.execute(
+            "INSERT INTO media_items_fts(rowid, title, description, genre)
+             SELECT rowid, title, COALESCE(description, ''), genre
+             FROM media_items",
+            [],
+        )?;
+
+        // Create triggers to keep FTS in sync
+        // Trigger for INSERT
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS media_items_fts_insert AFTER INSERT ON media_items BEGIN
+                INSERT INTO media_items_fts(rowid, title, description, genre)
+                VALUES (NEW.rowid, NEW.title, COALESCE(NEW.description, ''), NEW.genre);
+             END",
+            [],
+        )?;
+
+        // Trigger for UPDATE
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS media_items_fts_update AFTER UPDATE ON media_items BEGIN
+                UPDATE media_items_fts
+                SET title = NEW.title,
+                    description = COALESCE(NEW.description, ''),
+                    genre = NEW.genre
+                WHERE rowid = NEW.rowid;
+             END",
+            [],
+        )?;
+
+        // Trigger for DELETE
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS media_items_fts_delete AFTER DELETE ON media_items BEGIN
+                DELETE FROM media_items_fts WHERE rowid = OLD.rowid;
+             END",
+            [],
+        )?;
+
+        tracing::info!("Created FTS5 virtual table for library search");
+        Ok(())
+    }
+}
+
 /// Migration runner
 pub struct MigrationRunner {
     migrations: Vec<Box<dyn Migration>>,
@@ -493,6 +561,7 @@ impl MigrationRunner {
             Box::new(Migration004ValidateAddonUrls),
             Box::new(Migration005Episodes),
             Box::new(Migration006AddonConfig),
+            Box::new(Migration007FTS5Search),
         ];
         Self { migrations }
     }

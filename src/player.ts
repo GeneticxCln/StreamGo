@@ -12,6 +12,14 @@ export interface PlayerOptions {
     container: HTMLElement;
     video: HTMLVideoElement;
     onClose?: () => void;
+    playlist?: PlaylistContext;
+}
+
+export interface PlaylistContext {
+    items: { id: string; title: string }[];
+    currentIndex: number;
+    onNext?: () => void;
+    onPrevious?: () => void;
 }
 
 export class VideoPlayer {
@@ -21,6 +29,7 @@ export class VideoPlayer {
     private dashPlayer: DashPlayer | null = null;
     private torrentPlayer: TorrentPlayer | null = null;
     private onCloseCallback?: () => void;
+    private playlistContext: PlaylistContext | null = null;
     private isPipActive: boolean = false;
     private hlsModule: HlsType | null = null;
     private localSubtitleBlobs: string[] = [];
@@ -44,6 +53,7 @@ export class VideoPlayer {
         this.container = options.container;
         this.video = options.video;
         this.onCloseCallback = options.onClose;
+        this.playlistContext = options.playlist || null;
         this.setupKeyboardShortcuts();
         this.setupSubtitleLoader();
         this.setupSubtitleSyncControls();
@@ -72,6 +82,9 @@ export class VideoPlayer {
 
         // Reset retry counter when playback resumes
         this.video.addEventListener('playing', () => this.resetRetryCounter());
+        
+        // Auto-advance to next item in playlist when video ends
+        this.video.addEventListener('ended', () => this.handleVideoEnded());
     }
 
     /**
@@ -835,7 +848,8 @@ export class VideoPlayer {
             ['pause', () => this.video.pause()],
             ['seekbackward', () => this.seek(-10)],
             ['seekforward', () => this.seek(10)],
-            ['previoustrack', () => this.close()],
+            ['previoustrack', () => this.playPrevious()],
+            ['nexttrack', () => this.playNext()],
         ];
 
         actionHandlers.forEach(([action, handler]) => {
@@ -1771,6 +1785,94 @@ export class VideoPlayer {
         if (this.retryCount > 0) {
             console.log('Playback recovered successfully. Resetting retry counter.');
             this.retryCount = 0;
+        }
+    }
+
+    /**
+     * Handle video ended event (auto-advance in playlist)
+     */
+    private handleVideoEnded(): void {
+        console.log('Video ended');
+        
+        // Stop progress saving
+        this.stopProgressSaving();
+        
+        // Auto-advance to next in playlist if available
+        if (this.playlistContext && this.playlistContext.currentIndex < this.playlistContext.items.length - 1) {
+            console.log('Auto-advancing to next item in playlist');
+            showToast('Playing next in playlist...', 'info');
+            
+            // Delay slightly to show the toast
+            setTimeout(() => {
+                this.playNext();
+            }, 1000);
+        } else {
+            console.log('Playlist ended or not in playlist mode');
+        }
+    }
+
+    /**
+     * Play next item in playlist
+     */
+    private playNext(): void {
+        if (!this.playlistContext) {
+            console.log('Not in playlist mode');
+            return;
+        }
+
+        if (this.playlistContext.currentIndex >= this.playlistContext.items.length - 1) {
+            console.log('Already at last item in playlist');
+            showToast('End of playlist', 'info');
+            return;
+        }
+
+        if (this.playlistContext.onNext) {
+            this.playlistContext.onNext();
+        }
+    }
+
+    /**
+     * Play previous item in playlist
+     */
+    private playPrevious(): void {
+        if (!this.playlistContext) {
+            console.log('Not in playlist mode');
+            return;
+        }
+
+        if (this.playlistContext.currentIndex <= 0) {
+            console.log('Already at first item in playlist');
+            showToast('Start of playlist', 'info');
+            return;
+        }
+
+        if (this.playlistContext.onPrevious) {
+            this.playlistContext.onPrevious();
+        }
+    }
+
+    /**
+     * Update playlist context (when navigating between items)
+     */
+    setPlaylistContext(context: PlaylistContext | null): void {
+        this.playlistContext = context;
+        this.updatePlaylistUI();
+    }
+
+    /**
+     * Update playlist UI elements
+     */
+    private updatePlaylistUI(): void {
+        const queueInfo = document.getElementById('playlist-queue-info');
+        if (!queueInfo) return;
+
+        if (this.playlistContext && this.playlistContext.items.length > 1) {
+            const current = this.playlistContext.currentIndex + 1;
+            const total = this.playlistContext.items.length;
+            queueInfo.textContent = `${current} / ${total} in playlist`;
+            queueInfo.style.display = 'block';
+        } else {
+            queueInfo.style.display = 'none';
         }
     }
 }

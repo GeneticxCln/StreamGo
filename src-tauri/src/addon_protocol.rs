@@ -235,13 +235,25 @@ where
             E: de::Error,
         {
             // Handle empty strings as None
-            if value.trim().is_empty() {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
                 return Ok(None);
             }
-            value
-                .parse::<f32>()
-                .map(Some)
-                .map_err(|_| E::custom(format!("invalid float string: {}", value)))
+            
+            // Handle common non-numeric values gracefully
+            match trimmed.to_lowercase().as_str() {
+                "n/a" | "na" | "null" | "none" | "tbd" | "unknown" => return Ok(None),
+                _ => {}
+            }
+            
+            // Try to parse as float, return None if it fails (be lenient)
+            match trimmed.parse::<f32>() {
+                Ok(f) if f.is_finite() => Ok(Some(f)),
+                _ => {
+                    tracing::debug!(value = %value, "Skipping invalid float value");
+                    Ok(None)
+                }
+            }
         }
     }
 

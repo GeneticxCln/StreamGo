@@ -79,10 +79,23 @@ impl ContentAggregator {
         );
 
         // Filter and sort enabled addons by priority (higher priority first)
-        // Also filter out addons with empty URLs
+        // Also filter out addons with empty URLs and those without catalog resources
         let mut enabled_addons: Vec<_> = addons
             .iter()
-            .filter(|a| a.enabled && !a.url.is_empty())
+            .filter(|a| {
+                let has_catalog = a.manifest.resources.contains(&"catalog".to_string());
+                if a.enabled && !a.url.is_empty() && !has_catalog {
+                    tracing::debug!(
+                        addon_id = %a.id,
+                        addon_name = %a.name,
+                        resources = ?a.manifest.resources,
+                        "Skipping addon without catalog resources"
+                    );
+                }
+                a.enabled 
+                && !a.url.is_empty() 
+                && has_catalog
+            })
             .collect();
 
         enabled_addons.sort_by(|a, b| b.priority.cmp(&a.priority));

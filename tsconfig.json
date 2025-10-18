@@ -25,6 +25,9 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", "src-tauri"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", "src-tauri"],
+  
+  /* Svelte support */
+  "types": ["svelte"]
 }

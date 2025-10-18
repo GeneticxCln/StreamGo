@@ -210,6 +210,7 @@ fn parse_air_date(released: &Option<String>) -> Option<DateTime<Utc>> {
 }
 
 /// Group calendar entries by date for UI display
+#[allow(dead_code)]
 pub fn group_by_date(entries: Vec<CalendarEntry>) -> Vec<(String, Vec<CalendarEntry>)> {
     use std::collections::HashMap;
 
@@ -227,6 +228,7 @@ pub fn group_by_date(entries: Vec<CalendarEntry>) -> Vec<(String, Vec<CalendarEn
 }
 
 /// Format relative date for calendar display (Today, Tomorrow, etc.)
+#[allow(dead_code)]
 pub fn format_relative_date(air_date: &DateTime<Utc>) -> String {
     let now = Utc::now();
     let days_diff = (air_date.date_naive() - now.date_naive()).num_days();

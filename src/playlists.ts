@@ -533,9 +533,30 @@ export class PlaylistManager {
         }
     }
 
-    private playMedia(mediaId: string) {
+    private async playMedia(mediaId: string) {
+        if (!this.currentPlaylist || !this.currentPlaylistItems.length) {
+            // Not in playlist context, play normally
+            const app = (window as any).app;
+            if (app && typeof app.showMediaDetail === 'function' && typeof app.playMedia === 'function') {
+                app.showMediaDetail(mediaId);
+                app.playMedia(mediaId);
+            }
+            return;
+        }
+
+        // Find the index of the item in the current playlist
+        const index = this.currentPlaylistItems.findIndex(item => item.id === mediaId);
+        if (index === -1) {
+            console.error('Media item not found in playlist');
+            return;
+        }
+
+        // Play with playlist context
         const app = (window as any).app;
-        if (app && typeof app.showMediaDetail === 'function' && typeof app.playMedia === 'function') {
+        if (app && typeof app.playMediaFromPlaylist === 'function') {
+            await app.playMediaFromPlaylist(this.currentPlaylistItems, index);
+        } else if (app && typeof app.showMediaDetail === 'function' && typeof app.playMedia === 'function') {
+            // Fallback
             app.showMediaDetail(mediaId);
             app.playMedia(mediaId);
         }
@@ -549,9 +570,13 @@ export class PlaylistManager {
                 return;
             }
 
-            const firstItem = items[0];
             const app = (window as any).app;
-            if (app && typeof app.showMediaDetail === 'function' && typeof app.playMedia === 'function') {
+            if (app && typeof app.playMediaFromPlaylist === 'function') {
+                // Play first item with full playlist context
+                await app.playMediaFromPlaylist(items, 0);
+            } else if (app && typeof app.showMediaDetail === 'function' && typeof app.playMedia === 'function') {
+                // Fallback to old behavior
+                const firstItem = items[0];
                 app.showMediaDetail(firstItem.id);
                 await app.playMedia(firstItem.id);
             }

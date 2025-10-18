@@ -1281,6 +1281,14 @@ export class StreamGoApp {
                 }
             });
         });
+
+        // Re-attach context menu handlers for dynamically rendered cards
+        try {
+            const cm = (window as any).contextMenuManager;
+            if (cm && typeof cm.attachToCards === 'function') {
+                cm.attachToCards();
+            }
+        } catch {}
     }
 
     async installAddon() {
@@ -1381,7 +1389,7 @@ export class StreamGoApp {
         this.mediaMap[item.id] = item;
 
         return `
-            <div class="meta-item-container poster-shape-poster animation-fade-in" data-media-id="${escapedId}">
+            <div class="meta-item-container poster-shape-poster animation-fade-in" data-media-id="${escapedId}" data-context-menu="true">
                 <div class="poster-container">
                     <div class="poster-image-layer">
                         <img 
@@ -2129,6 +2137,83 @@ export class StreamGoApp {
                 Toast.error('Content sources not loading. Please check your internet connection and try again.');
             } else if (errorMessage.includes('TMDB_API_KEY')) {
                 Toast.error('TMDB API key not configured. Please add your API key to the .env file.');
+            } else {
+                Toast.error(`Playback failed: ${errorMessage}`);
+            }
+        }
+    }
+
+    /**
+     * Play media from a playlist with queue context
+     */
+    async playMediaFromPlaylist(items: MediaItem[], currentIndex: number): Promise<void> {
+        try {
+            const media = items[currentIndex];
+            if (!media) {
+                console.error('Media item not found at index', currentIndex);
+                return;
+            }
+
+            // Show media detail first
+            this.showMediaDetail(media.id);
+
+            // Create playlist context
+            const playlistContext = {
+                items: items.map(item => ({
+                    id: item.id,
+                    title: item.title
+                })),
+                currentIndex,
+                onNext: async () => {
+                    if (currentIndex < items.length - 1) {
+                        await this.playMediaFromPlaylist(items, currentIndex + 1);
+                    }
+                },
+                onPrevious: async () => {
+                    if (currentIndex > 0) {
+                        await this.playMediaFromPlaylist(items, currentIndex - 1);
+                    }
+                }
+            };
+
+            // Load stream
+            Toast.info('Loading stream...');
+            const typeStr = this.getMediaTypeString(media.media_type);
+            const streamUrl = await invoke<string>('get_stream_url', { 
+                content_id: media.id, 
+                media_type: typeStr 
+            });
+
+            // Set stream URL for external player
+            const externalPlayerManager = (window as any).externalPlayerManager;
+            if (externalPlayerManager) {
+                externalPlayerManager.setCurrentStream(streamUrl);
+            }
+
+            // Check for watch progress
+            let startTime = 0;
+            const progress = media.progress || 0;
+            if (progress > 30) {
+                const shouldResume = await this.showResumePrompt(progress);
+                if (shouldResume) {
+                    startTime = progress;
+                }
+            }
+
+            // Play with playlist context
+            const player = (window as any).player;
+            if (player) {
+                player.setPlaylistContext(playlistContext);
+                player.loadVideo(streamUrl, media.title, startTime);
+            } else {
+                console.error('Player not initialized');
+                Toast.error('Video player not available');
+            }
+        } catch (err) {
+            console.error('Error playing from playlist:', err);
+            const errorMessage = String(err);
+            if (errorMessage.includes('No working addons available')) {
+                Toast.error('No content sources available. Please install addons.');
             } else {
                 Toast.error(`Playback failed: ${errorMessage}`);
             }

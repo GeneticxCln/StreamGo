@@ -2165,6 +2165,50 @@ img.lazy-loaded {
 }
 
 /* Detail page responsive */
+@media (max-width: 1024px) {
+    .detail-content {
+        grid-template-columns: 240px 1fr;
+        gap: 32px;
+        padding-top: 32px;
+    }
+    
+    .detail-title {
+        font-size: 32px;
+    }
+}
+
+@media (max-width: 768px) {
+    .detail-content {
+        grid-template-columns: 1fr;
+        gap: 24px;
+        padding: 24px 16px;
+    }
+    
+    .detail-poster-wrapper {
+        max-width: 300px;
+        margin: 0 auto;
+    }
+    
+    .detail-info {
+        padding: 24px;
+    }
+    
+    .detail-title {
+        font-size: 28px;
+    }
+    
+    .detail-actions {
+        flex-direction: column;
+    }
+    
+    .play-btn,
+    .add-btn,
+    .favorite-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
 @media (max-width: 640px) {
     .metadetails-content {
         display: block;
@@ -2182,6 +2226,10 @@ img.lazy-loaded {
     .videos-list,
     .streams-list {
         border-radius: var(--border-radius) var(--border-radius) 0 0;
+    }
+    
+    .detail-backdrop {
+        opacity: 0.15;
     }
 }
 img.lazy-error {
@@ -2565,7 +2613,9 @@ img.lazy-error {
 }
 
 .settings-section {
-    background: var(--background-secondary);
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
     border-radius: 12px;
     padding: 32px;
     margin-bottom: 24px;
@@ -2575,8 +2625,8 @@ img.lazy-error {
 
 .settings-section:hover {
     border-color: rgba(255, 255, 255, 0.12);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    background: rgba(0, 0, 0, 0.4);
 }
 
 .settings-section h3 {
@@ -2685,6 +2735,39 @@ img.lazy-error {
 /* Detail Page */
 .detail-container {
     animation: fadeIn 0.4s ease-in;
+    position: relative;
+    min-height: 100vh;
+}
+
+/* Stremio-inspired fixed background layer */
+.detail-hero {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: -1;
+    background-color: var(--background-primary);
+    overflow: hidden;
+}
+
+.detail-backdrop {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+.detail-hero-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(ellipse at center top, rgba(18, 20, 29, 0.7) 0%, rgba(18, 20, 29, 0.9) 50%, rgba(18, 20, 29, 0.95) 100%);
+    pointer-events: none;
 }
 
 .back-btn {
@@ -2708,35 +2791,6 @@ img.lazy-error {
     transform: translateX(-4px);
 }
 
-.detail-hero {
-    width: 100%;
-    height: 560px;
-    border-radius: 16px;
-    overflow: hidden;
-    position: relative;
-    margin-bottom: -120px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-    z-index: 0;
-}
-
-.detail-backdrop {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center top;
-}
-
-.detail-hero-overlay {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 85%;
-    background: linear-gradient(to top, rgba(18, 20, 29, 1) 0%, rgba(18, 20, 29, 0.95) 30%, rgba(18, 20, 29, 0.7) 60%, transparent 100%);
-    pointer-events: none;
-    z-index: 1;
-}
-
 .detail-content {
     display: grid;
     grid-template-columns: 280px 1fr;
@@ -2744,23 +2798,38 @@ img.lazy-error {
     margin-bottom: 48px;
     position: relative;
     z-index: 1;
-    padding-top: 0;
+    padding-top: 48px;
+    max-width: 1400px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .detail-poster-wrapper {
     position: relative;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    padding: 8px;
 }
 
 .detail-poster {
     width: 100%;
-    border-radius: 12px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    display: block;
 }
 
 .detail-poster:hover {
     transform: translateY(-4px);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.15);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.detail-info {
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(15px);
+    border-radius: 12px;
+    padding: 32px;
 }
 
 .detail-title {
@@ -2770,6 +2839,7 @@ img.lazy-error {
     line-height: 1.1;
     letter-spacing: -0.02em;
     color: var(--text-primary);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 .detail-meta {

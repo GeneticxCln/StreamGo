@@ -5,26 +5,33 @@ mod aggregator;
 pub mod api;
 mod cache;
 mod calendar;
+mod casting;
 mod database;
+mod folder_watcher;
 mod i18n;
+mod local_media;
 mod logging;
 mod migrations;
 mod models;
 mod notifications;
 mod player;
 mod streaming_server;
+mod subtitle_providers;
 
 // Re-export public items (avoid glob conflicts)
 pub use addon_protocol::{AddonClient, AddonError, Stream, StreamBehaviorHints, Subtitle};
 pub use aggregator::{AggregationResult, ContentAggregator, SourceHealth, StreamAggregationResult};
 pub use cache::{CacheManager, CacheStats};
+pub use casting::{CastDevice, CastManager, CastSession, PlaybackState};
 pub use database::Database;
 pub use logging::{
     init_logging, log_shutdown, log_startup_info, DiagnosticsInfo, PerformanceMetrics,
 };
 pub use migrations::{MigrationRunner, CURRENT_SCHEMA_VERSION};
 pub use models::*;
+pub use local_media::{LocalMediaFile, LocalMediaScanner, VideoMetadata};
 pub use player::{ExternalPlayer, PlayerManager, SubtitleCue, SubtitleManager};
+pub use subtitle_providers::{SubtitleProvider, SubtitleResult};
 
 use serde::Serialize;
 
@@ -33,6 +40,7 @@ pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub cache: Arc<Mutex<CacheManager>>,
     pub streaming_server: Option<Arc<streaming_server::StreamingServer>>,
+    pub cast_manager: Option<Arc<CastManager>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -325,8 +333,11 @@ async fn get_stream_url(
             addons = builtin;
         }
 
-        // Filter enabled addons
-        let enabled: Vec<Addon> = addons.into_iter().filter(|a| a.enabled).collect();
+        // Filter enabled addons that provide "stream" resource
+        let enabled: Vec<Addon> = addons
+            .into_iter()
+            .filter(|a| a.enabled && a.manifest.resources.iter().any(|r| r == "stream"))
+            .collect();
         Ok::<Vec<Addon>, String>(enabled)
     })
     .await;
@@ -334,9 +345,9 @@ async fn get_stream_url(
     let addons = match addons_res {
         Ok(Ok(v)) if !v.is_empty() => v,
         Ok(Ok(_)) => {
-            tracing::error!("No enabled addons available - StreamGo cannot provide content without working addons");
+            tracing::error!("No enabled addons with stream resource available - StreamGo cannot provide content without streaming addons");
             return Err(
-                "No working addons available. Please install addons from the Add-ons section."
+                "No streaming addons available. Please install addons that provide streams."
                     .to_string(),
             );
         }
@@ -419,7 +430,11 @@ async fn get_streams(
             }
             addons = builtin;
         }
-        let enabled: Vec<Addon> = addons.into_iter().filter(|a| a.enabled).collect();
+        // Filter enabled addons that provide "stream" resource
+        let enabled: Vec<Addon> = addons
+            .into_iter()
+            .filter(|a| a.enabled && a.manifest.resources.iter().any(|r| r == "stream"))
+            .collect();
         Ok::<Vec<Addon>, String>(enabled)
     })
     .await
@@ -428,9 +443,9 @@ async fn get_streams(
     let addons = match addons_res {
         Ok(v) if !v.is_empty() => v,
         Ok(_) => {
-            tracing::warn!("No enabled addons available for subtitles");
+            tracing::warn!("No enabled addons with stream resource available");
             return Err(
-                "No working addons available. Please install addons from the Add-ons section."
+                "No streaming addons available. Please install addons that provide streams."
                     .to_string(),
             );
         }
@@ -486,7 +501,11 @@ async fn get_subtitles(
             }
             addons = builtin;
         }
-        let enabled: Vec<Addon> = addons.into_iter().filter(|a| a.enabled).collect();
+        // Filter enabled addons that provide "subtitles" resource
+        let enabled: Vec<Addon> = addons
+            .into_iter()
+            .filter(|a| a.enabled && a.manifest.resources.iter().any(|r| r == "subtitles"))
+            .collect();
         Ok::<Vec<Addon>, String>(enabled)
     })
     .await
@@ -495,11 +514,9 @@ async fn get_subtitles(
     let addons = match addons_res {
         Ok(v) if !v.is_empty() => v,
         Ok(_) => {
-            tracing::warn!("No enabled addons available for streams");
-            return Err(
-                "No working addons available. Please install addons from the Add-ons section."
-                    .to_string(),
-            );
+            tracing::debug!("No enabled addons with subtitles resource available");
+            // Return empty list instead of error - subtitles are optional
+            return Ok(Vec::new());
         }
         Err(e) => return Err(format!("Failed to load addons: {}", e)),
     };
@@ -1609,6 +1626,225 @@ async fn get_addon_health(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
+// Local media commands
+#[tauri::command]
+async fn scan_local_media(paths: Vec<String>) -> Result<Vec<LocalMediaFile>, String> {
+    let pathbufs: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+    let scanner = LocalMediaScanner::new(pathbufs);
+    
+    scanner
+        .scan_all()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn scan_local_folder(path: String) -> Result<Vec<LocalMediaFile>, String> {
+    let scanner = LocalMediaScanner::new(vec![std::path::PathBuf::from(path)]);
+    
+    scanner
+        .scan_all()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn probe_video_file(path: String) -> Result<VideoMetadata, String> {
+    local_media::probe_video_metadata(&path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// Subtitle auto-fetch commands
+#[tauri::command]
+async fn auto_fetch_subtitles(
+    file_path: Option<String>,
+    imdb_id: Option<String>,
+    languages: Vec<String>,
+) -> Result<Vec<SubtitleResult>, String> {
+    let api_key = std::env::var("OPENSUBTITLES_API_KEY").ok();
+    let manager = subtitle_providers::SubtitleManager::new(api_key);
+
+    let lang_refs: Vec<&str> = languages.iter().map(|s| s.as_str()).collect();
+    manager
+        .auto_fetch(
+            file_path.as_deref(),
+            imdb_id.as_deref(),
+            &lang_refs,
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn download_best_subtitle(
+    results: Vec<SubtitleResult>,
+) -> Result<(String, SubtitleResult), String> {
+    let api_key = std::env::var("OPENSUBTITLES_API_KEY").ok();
+    let manager = subtitle_providers::SubtitleManager::new(api_key);
+
+    manager
+        .download_best(&results)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn calculate_video_hash(
+    file_path: String,
+) -> Result<(String, u64), String> {
+    subtitle_providers::calculate_opensubtitles_hash(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+// Local media scanning commands
+#[tauri::command]
+async fn scan_local_folder(
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<local_media::LocalMediaFile>, String> {
+    use std::path::PathBuf;
+    
+    let scanner = local_media::LocalMediaScanner::new(vec![PathBuf::from(&path)]);
+    let files = scanner.scan_all().await.map_err(|e| e.to_string())?;
+    
+    // Save to database
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        for file in &files {
+            db.upsert_local_media_file(file).map_err(|e| e.to_string())?;
+        }
+        db.add_scanned_directory(&path).map_err(|e| e.to_string())?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    
+    Ok(files)
+}
+
+#[tauri::command]
+async fn get_local_media_files(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<local_media::LocalMediaFile>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_local_media_files().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn probe_video_file(
+    path: String,
+) -> Result<local_media::VideoMetadata, String> {
+    local_media::probe_video_metadata(&path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_scanned_directories(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<(String, String, bool)>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_scanned_directories().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// Casting commands
+#[tauri::command]
+async fn discover_cast_devices(
+    timeout_secs: Option<u64>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<CastDevice>, String> {
+    let cast_manager = state
+        .cast_manager
+        .as_ref()
+        .ok_or_else(|| "Cast manager not available".to_string())?;
+
+    let timeout = std::time::Duration::from_secs(timeout_secs.unwrap_or(5));
+    cast_manager
+        .discover_devices(timeout)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_cast_devices(state: tauri::State<'_, AppState>) -> Result<Vec<CastDevice>, String> {
+    let cast_manager = state
+        .cast_manager
+        .as_ref()
+        .ok_or_else(|| "Cast manager not available".to_string())?;
+
+    Ok(cast_manager.get_devices().await)
+}
+
+#[tauri::command]
+async fn start_casting(
+    device_id: String,
+    media_url: String,
+    title: Option<String>,
+    subtitle_url: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<CastSession, String> {
+    let cast_manager = state
+        .cast_manager
+        .as_ref()
+        .ok_or_else(|| "Cast manager not available".to_string())?;
+
+    cast_manager
+        .start_cast(&device_id, &media_url, title, subtitle_url)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn stop_casting(
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let cast_manager = state
+        .cast_manager
+        .as_ref()
+        .ok_or_else(|| "Cast manager not available".to_string())?;
+
+    cast_manager
+        .stop_cast(&session_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_cast_sessions(state: tauri::State<'_, AppState>) -> Result<Vec<CastSession>, String> {
+    let cast_manager = state
+        .cast_manager
+        .as_ref()
+        .ok_or_else(|| "Cast manager not available".to_string())?;
+
+    Ok(cast_manager.get_sessions().await)
+}
+
+#[tauri::command]
+async fn get_cast_session_status(
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<CastSession>, String> {
+    let cast_manager = state
+        .cast_manager
+        .as_ref()
+        .ok_or_else(|| "Cast manager not available".to_string())?;
+
+    Ok(cast_manager.get_session_status(&session_id).await)
+}
+
 #[tauri::command]
 async fn auto_disable_unhealthy_addons(
     threshold: f64,
@@ -1762,10 +1998,23 @@ pub fn run() {
         }
     };
 
+    // Initialize cast manager (optional - can fail gracefully)
+    let cast_manager = match CastManager::new(8765) {
+        Ok(manager) => {
+            tracing::info!("Cast manager initialized successfully");
+            Some(Arc::new(manager))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to initialize cast manager, casting will not be available");
+            None
+        }
+    };
+
     let app_state = AppState {
         db: Arc::new(Mutex::new(database)),
         cache: Arc::new(Mutex::new(cache)),
         streaming_server,
+        cast_manager,
     };
 
     tauri::Builder::default()
@@ -1847,6 +2096,18 @@ pub fn run() {
             get_addon_health_summaries,
             get_addon_health,
             auto_disable_unhealthy_addons,
+            scan_local_media,
+            scan_local_folder,
+            probe_video_file,
+            auto_fetch_subtitles,
+            download_best_subtitle,
+            calculate_video_hash,
+            discover_cast_devices,
+            get_cast_devices,
+            start_casting,
+            stop_casting,
+            get_cast_sessions,
+            get_cast_session_status,
             i18n::i18n_get_supported_locales,
             i18n::i18n_set_locale,
             i18n::i18n_get_current_locale,

@@ -12,6 +12,7 @@
   // Dynamic imports for code-splitting
   let SettingsSection: any = null;
   let LibrarySection: any = null;
+  let PlayerUI: any = null;
   
   // Track which section is active
   // Eventually this will be managed by a router or global state
@@ -20,6 +21,8 @@
   // Component loading states
   let loadingSettings = false;
   let loadingLibrary = false;
+  let loadingPlayer = false;
+  let playerUILoaded = false;
   
   // Dynamic import functions
   async function loadSettingsComponent() {
@@ -48,6 +51,29 @@
         loadingLibrary = false;
       }
     }
+  }
+  
+  async function loadPlayerComponent() {
+    if (!PlayerUI && !loadingPlayer) {
+      loadingPlayer = true;
+      try {
+        const module = await import('./components/player/PlayerUI.svelte');
+        PlayerUI = module.default;
+        playerUILoaded = true;
+        console.log('✅ Player UI component loaded');
+      } catch (error) {
+        console.error('Failed to load Player UI component:', error);
+      } finally {
+        loadingPlayer = false;
+      }
+    }
+  }
+  
+  // Load player UI when player is initialized
+  if (typeof window !== 'undefined') {
+    window.addEventListener('streamgo:player-ready', () => {
+      loadPlayerComponent();
+    });
   }
   
   // Listen for section changes from vanilla TS app
@@ -111,9 +137,24 @@
   {/if}
 {/if}
 
+<!-- Player UI overlay - always rendered when loaded -->
+{#if PlayerUI && playerUILoaded}
+  <div id="player-ui-svelte">
+    <svelte:component this={PlayerUI} />
+  </div>
+{/if}
+
 <!-- Global styles are imported from styles.css in index.html -->
 
 <style>
+  #player-ui-svelte {
+    pointer-events: none; /* Let clicks through to video */
+  }
+  
+  #player-ui-svelte > :global(*) {
+    pointer-events: auto; /* Re-enable for actual controls */
+  }
+  
   .loading-section {
     display: flex;
     justify-content: center;

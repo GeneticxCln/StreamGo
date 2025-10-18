@@ -5,6 +5,7 @@ import { escapeHtml } from './utils/security';
 import { Toast, Modal } from './ui-utils';
 import { setupLazyLoading } from './utils/imageLazyLoad';
 import { SearchHistory } from './search-history';
+import { initializeCasting, updateCastingInfo } from './casting-integration';
 
 // Re-export for backwards compatibility
 (window as any).escapeHtml = escapeHtml;
@@ -67,6 +68,9 @@ export class StreamGoApp {
         this.initializeTheme();
         this.loadSettings();
         this.loadLibrary();
+        
+        // Initialize casting components
+        initializeCasting();
         
         // Auto-install default addons if none are installed (like Stremio does)
         const installedDefault = await this.ensureDefaultAddons();
@@ -1283,7 +1287,7 @@ export class StreamGoApp {
 
         try {
             Toast.info('Installing add-on...');
-            const addonId = await invoke<string>('install_addon', { addon_url: url, addonUrl: url });
+            const addonId = await invoke<string>('install_addon', { addonUrl: url });
             Toast.success(`Add-on installed successfully! ID: ${addonId}`);
             await this.loadAddons();
         } catch (err) {
@@ -1323,7 +1327,7 @@ export class StreamGoApp {
 
     private async enableAddon(id: string) {
         try {
-            await invoke('enable_addon', { addon_id: id });
+            await invoke('enable_addon', { addonId: id });
             Toast.success('Add-on enabled');
             await this.loadAddons();
         } catch (e) {
@@ -1334,7 +1338,7 @@ export class StreamGoApp {
 
     private async disableAddon(id: string) {
         try {
-            await invoke('disable_addon', { addon_id: id });
+            await invoke('disable_addon', { addonId: id });
             Toast.success('Add-on disabled');
             await this.loadAddons();
         } catch (e) {
@@ -1345,7 +1349,7 @@ export class StreamGoApp {
 
     private async uninstallAddon(id: string) {
         try {
-            await invoke('uninstall_addon', { addon_id: id });
+            await invoke('uninstall_addon', { addonId: id });
             Toast.success('Add-on uninstalled');
             await this.loadAddons();
         } catch (e) {
@@ -1871,7 +1875,7 @@ export class StreamGoApp {
         
         try {
             const typeStr = this.getMediaTypeString(media.media_type);
-            const metaResponse = await invoke<any>('get_addon_meta', { content_id: media.id, media_type: typeStr });
+            const metaResponse = await invoke<any>('get_addon_meta', { contentId: media.id, mediaType: typeStr });
             
             // Cast & Crew Section
             if (metaResponse.cast && metaResponse.cast.length > 0) {
@@ -2080,7 +2084,7 @@ export class StreamGoApp {
                 }
                 return undefined;
             })();
-            const streamUrl = this.selectedStreamUrl || await invoke<string>('get_stream_url', { content_id: mediaId, media_type: typeStr });
+            const streamUrl = this.selectedStreamUrl || await invoke<string>('get_stream_url', { contentId: mediaId, mediaType: typeStr });
             
             // Set stream URL for external player manager
             const externalPlayerManager = (window as any).externalPlayerManager;
@@ -2099,6 +2103,13 @@ export class StreamGoApp {
                     }
                 }
             }
+            
+            // Update casting info with current video
+            updateCastingInfo(
+                streamUrl,
+                this.currentMedia?.title || 'Video',
+                undefined // TODO: Add subtitle URL when available
+            );
             
             // Ensure player is loaded, then play
             const player = await this.ensurePlayer();
@@ -2162,8 +2173,8 @@ export class StreamGoApp {
             Toast.info('Loading stream...');
             const typeStr = this.getMediaTypeString(media.media_type);
             const streamUrl = await invoke<string>('get_stream_url', { 
-                content_id: media.id, 
-                media_type: typeStr 
+                contentId: media.id, 
+                mediaType: typeStr 
             });
 
             // Set stream URL for external player
@@ -2182,6 +2193,13 @@ export class StreamGoApp {
                 }
             }
 
+            // Update casting info for playlist item
+            updateCastingInfo(
+                streamUrl,
+                media.title,
+                undefined
+            );
+            
             // Ensure player is loaded, then play with playlist context
             const player = await this.ensurePlayer();
             if (player) {
@@ -2242,9 +2260,9 @@ export class StreamGoApp {
 
             // Don't save progress if it's near the end (already marked as watched)
             if (watched) {
-                await invoke('update_watch_progress', { media_id: this.currentMedia.id, progress: 0, watched: true });
+                await invoke('update_watch_progress', { mediaId: this.currentMedia.id, progress: 0, watched: true });
             } else if (progress > 0) {
-                await invoke('update_watch_progress', { media_id: this.currentMedia.id, progress, watched: false });
+                await invoke('update_watch_progress', { mediaId: this.currentMedia.id, progress, watched: false });
             }
 
             console.log(`Progress updated: ${progress}s, watched: ${watched}`);
@@ -2367,7 +2385,7 @@ export class StreamGoApp {
                 'LiveTv' in mt ? 'live' :
                 'Podcast' in mt ? 'podcast' : undefined
             ) : undefined;
-            const subs = await invoke<any[]>('get_subtitles', { content_id: media.id, media_type: typeStr });
+            const subs = await invoke<any[]>('get_subtitles', { contentId: media.id, mediaType: typeStr });
             this.currentSubtitles = Array.isArray(subs) ? subs : [];
             if (this.currentSubtitles.length === 0) {
                 menu.innerHTML = '<div class="empty-message">No subtitles available</div>';
@@ -2457,7 +2475,7 @@ export class StreamGoApp {
                 'LiveTv' in mt ? 'live' :
                 'Podcast' in mt ? 'podcast' : undefined
             ) : undefined;
-            const streams = await invoke<any[]>('get_streams', { content_id: media.id, media_type: typeStr });
+            const streams = await invoke<any[]>('get_streams', { contentId: media.id, mediaType: typeStr });
             this.currentStreams = Array.isArray(streams) ? streams : [];
             if (this.currentStreams.length === 0) {
                 listEl.innerHTML = `<div class="empty-message">No streams available from enabled add-ons.</div>`;
@@ -2643,14 +2661,14 @@ export class StreamGoApp {
         const trendingSection = document.getElementById('trending-section');
         if (!trendingRow) return;
         try {
-            const catalogs = await invoke<any[]>('list_catalogs', { media_type: 'movie' });
+            const catalogs = await invoke<any[]>('list_catalogs', { mediaType: 'movie' });
             if (!catalogs || catalogs.length === 0) {
                 if (trendingSection) trendingSection.style.display = 'none';
                 return;
             }
             // Prefer catalog with name containing 'trending', else first
             const selected = catalogs.find(c => String(c.name).toLowerCase().includes('trending')) || catalogs[0];
-            const result = await invoke<any>('aggregate_catalogs', { media_type: 'movie', catalog_id: selected.id });
+            const result = await invoke<any>('aggregate_catalogs', { mediaType: 'movie', catalogId: selected.id });
             const metas = (result && Array.isArray(result.items)) ? result.items : [];
             if (metas.length === 0) {
                 if (trendingSection) trendingSection.style.display = 'none';
@@ -2679,14 +2697,14 @@ export class StreamGoApp {
         const popularSection = document.getElementById('popular-section');
         if (!popularRow) return;
         try {
-            const catalogs = await invoke<any[]>('list_catalogs', { media_type: 'movie' });
+            const catalogs = await invoke<any[]>('list_catalogs', { mediaType: 'movie' });
             if (!catalogs || catalogs.length === 0) {
                 if (popularSection) popularSection.style.display = 'none';
                 return;
             }
             // Prefer catalog with name containing 'popular', else first
             const selected = catalogs.find(c => String(c.name).toLowerCase().includes('popular')) || catalogs[0];
-            const result = await invoke<any>('aggregate_catalogs', { media_type: 'movie', catalog_id: selected.id });
+            const result = await invoke<any>('aggregate_catalogs', { mediaType: 'movie', catalogId: selected.id });
             const metas = (result && Array.isArray(result.items)) ? result.items : [];
             if (metas.length === 0) {
                 if (popularSection) popularSection.style.display = 'none';
@@ -2712,7 +2730,7 @@ export class StreamGoApp {
     // Watchlist
     async addToWatchlist(mediaId: string): Promise<void> {
         try {
-            await invoke('add_to_watchlist', { media_id: mediaId });
+            await invoke('add_to_watchlist', { mediaId: mediaId });
             Toast.success('Added to watchlist!');
         } catch (err) {
             console.error('Error adding to watchlist:', err);
@@ -2722,7 +2740,7 @@ export class StreamGoApp {
 
     async removeFromWatchlist(mediaId: string): Promise<void> {
         try {
-            await invoke('remove_from_watchlist', { media_id: mediaId });
+            await invoke('remove_from_watchlist', { mediaId: mediaId });
             Toast.success('Removed from watchlist');
         } catch (err) {
             console.error('Error removing from watchlist:', err);
@@ -2733,7 +2751,7 @@ export class StreamGoApp {
     // Favorites
     async addToFavorites(mediaId: string): Promise<void> {
         try {
-            await invoke('add_to_favorites', { media_id: mediaId });
+            await invoke('add_to_favorites', { mediaId: mediaId });
             Toast.success('Added to favorites! ♥');
         } catch (err) {
             console.error('Error adding to favorites:', err);
@@ -2743,7 +2761,7 @@ export class StreamGoApp {
 
     async removeFromFavorites(mediaId: string): Promise<void> {
         try {
-            await invoke('remove_from_favorites', { media_id: mediaId });
+            await invoke('remove_from_favorites', { mediaId: mediaId });
             Toast.success('Removed from favorites');
         } catch (err) {
             console.error('Error removing from favorites:', err);

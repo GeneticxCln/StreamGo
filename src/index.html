@@ -473,6 +473,9 @@
                                     <div id="playlist-queue-info" style="display: none; font-size: 0.85em; opacity: 0.7;"></div>
                                 </div>
                                 <div class="player-controls-extras">
+                                    <!-- Cast Button (Svelte component will mount here) -->
+                                    <div id="cast-button-mount"></div>
+                                    
                                     <button id="external-player-btn" class="external-player-btn" title="Open in External Player" style="display: none;">
                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                                             <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
@@ -1048,6 +1051,9 @@
             <button class="onboarding-skip">Skip Setup</button>
         </div>
     </div>
+    
+    <!-- Device Picker Modal (Svelte component will mount here) -->
+    <div id="device-picker-mount"></div>
     
     <script type="module" src="/main.ts"></script>
 </body>

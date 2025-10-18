@@ -176,14 +176,14 @@ export class PlaylistManager {
 
     async viewPlaylist(playlistId: string) {
         try {
-            const playlist = await invoke<Playlist | null>('get_playlist', { playlist_id: playlistId });
+            const playlist = await invoke<Playlist | null>('get_playlist', { playlistId: playlistId });
             if (!playlist) {
                 Toast.error('Playlist not found');
                 return;
             }
 
             this.currentPlaylist = playlist;
-            this.currentPlaylistItems = await invoke<MediaItem[]>('get_playlist_items', { playlist_id: playlistId });
+            this.currentPlaylistItems = await invoke<MediaItem[]>('get_playlist_items', { playlistId: playlistId });
             
             this.showPlaylistDetail();
         } catch (err) {
@@ -430,8 +430,8 @@ export class PlaylistManager {
 
         try {
             await invoke('reorder_playlist', {
-                playlist_id: this.currentPlaylist.id,
-                media_ids: mediaIds
+                playlistId: this.currentPlaylist.id,
+                mediaIds: mediaIds
             });
             Toast.success('Playlist order updated');
         } catch (err) {
@@ -444,7 +444,7 @@ export class PlaylistManager {
 
     async addToPlaylist(playlistId: string, mediaId: string) {
         try {
-            await invoke('add_to_playlist', { playlist_id: playlistId, media_id: mediaId });
+            await invoke('add_to_playlist', { playlistId: playlistId, mediaId: mediaId });
             Toast.success('Added to playlist');
             
             // Refresh if viewing this playlist
@@ -467,7 +467,7 @@ export class PlaylistManager {
         if (!confirmed) return;
 
         try {
-            await invoke('remove_from_playlist', { playlist_id: playlistId, media_id: mediaId });
+            await invoke('remove_from_playlist', { playlistId: playlistId, mediaId: mediaId });
             Toast.success('Removed from playlist');
             
             if (this.currentPlaylist?.id === playlistId) {
@@ -495,7 +495,7 @@ export class PlaylistManager {
 
         try {
             await invoke('update_playlist', {
-                playlist_id: playlistId,
+                playlistId: playlistId,
                 name,
                 description: playlist.description || undefined
             });
@@ -520,7 +520,7 @@ export class PlaylistManager {
         if (!confirmed) return;
 
         try {
-            await invoke('delete_playlist', { playlist_id: playlistId });
+            await invoke('delete_playlist', { playlistId: playlistId });
             Toast.success('Playlist deleted');
             
             if (this.currentPlaylist?.id === playlistId) {
@@ -564,7 +564,7 @@ export class PlaylistManager {
 
     private async playPlaylist(playlistId: string) {
         try {
-            const items = await invoke<MediaItem[]>('get_playlist_items', { playlist_id: playlistId });
+            const items = await invoke<MediaItem[]>('get_playlist_items', { playlistId: playlistId });
             if (items.length === 0) {
                 Toast.warning('This playlist is empty');
                 return;

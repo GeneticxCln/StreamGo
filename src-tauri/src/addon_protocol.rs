@@ -38,6 +38,14 @@ pub struct AddonManifest {
     pub id_prefixes: Vec<String>,
     #[serde(default, rename = "behaviorHints")]
     pub behavior_hints: BehaviorHints,
+    
+    // Protocol v3 optional fields
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "manifestVersion")]
+    pub manifest_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub language: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub countries: Vec<String>,
 }
 
 /// Media types supported by addon - flexible string to support any type

@@ -197,6 +197,58 @@ export const EpisodeId = {
   }
 };
 
+// Casting Types
+export type CastProtocol = 'chromecast' | 'dlna' | 'airplay';
+
+export type DeviceStatus = 
+  | 'available' 
+  | 'connected' 
+  | 'playing' 
+  | 'paused' 
+  | 'buffering' 
+  | 'disconnected';
+
+export type PlaybackState = 'PLAYING' | 'PAUSED' | 'BUFFERING' | 'IDLE';
+
+export interface CastDevice {
+  id: string;
+  name: string;
+  protocol: CastProtocol;
+  ip_address: string;
+  port: number;
+  model?: string;
+  manufacturer?: string;
+  status: DeviceStatus;
+}
+
+export interface CastSession {
+  session_id: string;
+  device_id: string;
+  media_url: string;
+  title?: string;
+  subtitle_url?: string;
+  position: number;
+  duration: number;
+  state: PlaybackState;
+}
+
+// Subtitle Auto-Fetch Types
+export type SubtitleProvider = 'opensubtitles' | 'subdb';
+
+export interface SubtitleResult {
+  id: string;
+  language: string;
+  language_code: string;
+  file_name: string;
+  download_url: string;
+  score: number;
+  provider: SubtitleProvider;
+  format: string;
+  hearing_impaired: boolean;
+  download_count?: number;
+  rating?: number;
+}
+
 export interface Catalog {
   catalog_type: string;
   id: string;
@@ -302,49 +354,49 @@ export interface TauriCommands {
   search_library_advanced: { args: { filters: SearchFilters }; return: MediaItem[] };
   
   // Media & Catalogs
-  get_media_details: { args: { content_id: string; media_type: MediaType }; return: MediaItem };
-  get_stream_url: { args: { content_id: string; media_type?: string }; return: string };
-get_streams: { args: { content_id: string; media_type?: string }; return: StreamWithSource[] };
-  get_subtitles: { args: { content_id: string; media_type?: string }; return: Subtitle[] };
-  get_addon_meta: { args: { content_id: string; media_type?: string }; return: MetaItem };
-  list_catalogs: { args: { media_type: string }; return: CatalogInfo[] };
-  aggregate_catalogs: { args: { media_type: string; catalog_id: string; extra?: { [key: string]: string } }; return: { items: any[]; sources: any[]; total_time_ms: number } };
+  get_media_details: { args: { contentId: string; mediaType: MediaType }; return: MediaItem };
+  get_stream_url: { args: { contentId: string; mediaType?: string }; return: string };
+get_streams: { args: { contentId: string; mediaType?: string }; return: StreamWithSource[] };
+  get_subtitles: { args: { contentId: string; mediaType?: string }; return: Subtitle[] };
+  get_addon_meta: { args: { contentId: string; mediaType?: string }; return: MetaItem };
+  list_catalogs: { args: { mediaType: string }; return: CatalogInfo[] };
+  aggregate_catalogs: { args: { mediaType: string; catalogId: string; extra?: { [key: string]: string } }; return: { items: any[]; sources: any[]; total_time_ms: number } };
   
   // Addons
   get_addons: { args: {}; return: Addon[] };
-  install_addon: { args: { addon_url: string }; return: string };
-  enable_addon: { args: { addon_id: string }; return: void };
-  disable_addon: { args: { addon_id: string }; return: void };
-  uninstall_addon: { args: { addon_id: string }; return: void };
+  install_addon: { args: { addonUrl: string }; return: string };
+  enable_addon: { args: { addonId: string }; return: void };
+  disable_addon: { args: { addonId: string }; return: void };
+  uninstall_addon: { args: { addonId: string }; return: void };
   
   // Settings
   get_settings: { args: {}; return: UserPreferences };
   save_settings: { args: { settings: UserPreferences }; return: void };
   
   // Watchlist  
-  add_to_watchlist: { args: { media_id: string }; return: void };
-  remove_from_watchlist: { args: { media_id: string }; return: void };
+  add_to_watchlist: { args: { mediaId: string }; return: void };
+  remove_from_watchlist: { args: { mediaId: string }; return: void };
   get_watchlist: { args: {}; return: MediaItem[] };
   
   // Favorites
-  add_to_favorites: { args: { media_id: string }; return: void };
-  remove_from_favorites: { args: { media_id: string }; return: void };
+  add_to_favorites: { args: { mediaId: string }; return: void };
+  remove_from_favorites: { args: { mediaId: string }; return: void };
   get_favorites: { args: {}; return: MediaItem[] };
   
   // Watch Progress
-  update_watch_progress: { args: { media_id: string; progress: number; watched: boolean }; return: void };
+  update_watch_progress: { args: { mediaId: string; progress: number; watched: boolean }; return: void };
   get_continue_watching: { args: {}; return: MediaItem[] };
   
   // Playlists
   create_playlist: { args: { name: string; description?: string }; return: string };
   get_playlists: { args: {}; return: Playlist[] };
-  get_playlist: { args: { playlist_id: string }; return: Playlist | null };
-  update_playlist: { args: { playlist_id: string; name: string; description?: string }; return: void };
-  delete_playlist: { args: { playlist_id: string }; return: void };
-  add_to_playlist: { args: { playlist_id: string; media_id: string }; return: void };
-  remove_from_playlist: { args: { playlist_id: string; media_id: string }; return: void };
-  get_playlist_items: { args: { playlist_id: string }; return: MediaItem[] };
-  reorder_playlist: { args: { playlist_id: string; media_ids: string[] }; return: void };
+  get_playlist: { args: { playlistId: string }; return: Playlist | null };
+  update_playlist: { args: { playlistId: string; name: string; description?: string }; return: void };
+  delete_playlist: { args: { playlistId: string }; return: void };
+  add_to_playlist: { args: { playlistId: string; mediaId: string }; return: void };
+  remove_from_playlist: { args: { playlistId: string; mediaId: string }; return: void };
+  get_playlist_items: { args: { playlistId: string }; return: MediaItem[] };
+  reorder_playlist: { args: { playlistId: string; mediaIds: string[] }; return: void };
   
   // Cache
   get_cache_stats: { args: {}; return: CacheStats };
@@ -353,14 +405,14 @@ get_streams: { args: { content_id: string; media_type?: string }; return: Stream
   
   // Health & Diagnostics
   get_addon_health_summaries: { args: {}; return: AddonHealthSummary[] };
-  get_addon_health: { args: { addon_id: string }; return: AddonHealthSummary | null };
+  get_addon_health: { args: { addonId: string }; return: AddonHealthSummary | null };
   get_performance_metrics: { args: {}; return: PerformanceMetrics };
   export_diagnostics: { args: {}; return: DiagnosticsInfo };
   export_diagnostics_file: { args: {}; return: string };
   reset_performance_metrics: { args: {}; return: void };
 
   // Calendar
-  get_calendar: { args: { days_ahead?: number }; return: CalendarEntry[] };
+  get_calendar: { args: { daysAhead?: number }; return: CalendarEntry[] };
 }
 
 // Global Tauri API

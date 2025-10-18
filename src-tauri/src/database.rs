@@ -1019,6 +1019,107 @@ impl Database {
 
         Ok(deleted)
     }
+
+    // Local media methods
+    pub fn upsert_local_media_file(&self, file: &crate::local_media::LocalMediaFile) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO local_media_files 
+             (id, file_path, file_name, file_size, title, year, season, episode, 
+              duration, resolution, video_codec, audio_codec, tmdb_id, imdb_id, 
+              poster_url, added_at, last_modified)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            params![
+                file.id,
+                file.file_path,
+                file.file_name,
+                file.file_size as i64,
+                file.title,
+                file.year,
+                file.season,
+                file.episode,
+                file.duration,
+                file.resolution,
+                file.video_codec,
+                file.audio_codec,
+                file.tmdb_id,
+                file.imdb_id,
+                file.poster_url,
+                file.added_at.to_rfc3339(),
+                file.last_modified.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_local_media_file(&self, file_path: &str) -> Result<(), anyhow::Error> {
+        self.conn.execute(
+            "DELETE FROM local_media_files WHERE file_path = ?1",
+            params![file_path],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_local_media_files(&self) -> Result<Vec<crate::local_media::LocalMediaFile>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, file_path, file_name, file_size, title, year, season, episode,
+                    duration, resolution, video_codec, audio_codec, tmdb_id, imdb_id,
+                    poster_url, added_at, last_modified
+             FROM local_media_files
+             ORDER BY title ASC"
+        )?;
+
+        let files = stmt.query_map([], |row| {
+            Ok(crate::local_media::LocalMediaFile {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_name: row.get(2)?,
+                file_size: row.get::<_, i64>(3)? as u64,
+                title: row.get(4)?,
+                year: row.get(5)?,
+                season: row.get(6)?,
+                episode: row.get(7)?,
+                duration: row.get(8)?,
+                resolution: row.get(9)?,
+                video_codec: row.get(10)?,
+                audio_codec: row.get(11)?,
+                tmdb_id: row.get(12)?,
+                imdb_id: row.get(13)?,
+                poster_url: row.get(14)?,
+                added_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(15)?)
+                    .unwrap_or_else(|_| chrono::Utc::now().into())
+                    .with_timezone(&chrono::Utc),
+                last_modified: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(16)?)
+                    .unwrap_or_else(|_| chrono::Utc::now().into())
+                    .with_timezone(&chrono::Utc),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(files)
+    }
+
+    pub fn add_scanned_directory(&self, path: &str) -> Result<(), anyhow::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO scanned_directories (path, last_scanned, enabled)
+             VALUES (?1, ?2, 1)",
+            params![path, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_scanned_directories(&self) -> Result<Vec<(String, String, bool)>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path, last_scanned, enabled FROM scanned_directories ORDER BY path ASC"
+        )?;
+
+        let dirs = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(dirs)
+    }
 }
 
 #[cfg(test)]

@@ -2,12 +2,15 @@
   import { onMount, afterUpdate } from 'svelte';
   import { libraryStore, libraryCount } from '../../stores/library';
   import MediaCard from '../shared/MediaCard.svelte';
+  import VirtualGrid from '../shared/VirtualGrid.svelte';
+  
+  const VIRTUAL_THRESHOLD = 50;
   
   onMount(async () => {
     await libraryStore.load();
   });
   
-  // Re-initialize lazy loading after the grid updates
+  // Re-initialize lazy loading after the grid updates (for non-virtual mode)
   afterUpdate(() => {
     if (typeof window !== 'undefined' && (window as any).setupLazyLoading) {
       (window as any).setupLazyLoading();
@@ -17,6 +20,8 @@
   function handleRetry() {
     libraryStore.load();
   }
+  
+  $: useVirtual = $libraryStore.items.length > VIRTUAL_THRESHOLD;
 </script>
 
 <section id="library-section" class="content-section" data-testid="library-section">
@@ -70,11 +75,28 @@
     </div>
   {:else}
     <!-- Library grid with items -->
-    <div id="library-grid" class="movie-grid">
-      {#each $libraryStore.items as item (item.id)}
-        <MediaCard {item} showProgress={false} />
-      {/each}
-    </div>
+    {#if useVirtual}
+      <!-- Virtual scrolling for large libraries -->
+      <div id="library-grid" class="movie-grid-virtual">
+        <VirtualGrid 
+          items={$libraryStore.items} 
+          itemHeight={400}
+          itemWidth={200}
+          gap={16}
+          minColumns={2}
+          let:item
+        >
+          <MediaCard {item} showProgress={false} />
+        </VirtualGrid>
+      </div>
+    {:else}
+      <!-- Standard grid for smaller libraries -->
+      <div id="library-grid" class="movie-grid">
+        {#each $libraryStore.items as item (item.id)}
+          <MediaCard {item} showProgress={false} />
+        {/each}
+      </div>
+    {/if}
   {/if}
 </section>
 
@@ -105,5 +127,10 @@
     color: var(--text-secondary);
     margin-bottom: 1.5rem;
     line-height: 1.6;
+  }
+  
+  .movie-grid-virtual {
+    height: calc(100vh - 200px);
+    min-height: 400px;
   }
 </style>

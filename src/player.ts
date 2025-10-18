@@ -6,6 +6,7 @@ type TorrentPlayerType = typeof import('./torrent-player').TorrentPlayer;
 import { detectStreamFormat } from './stream-format-detector';
 import { convertSRTtoVTT, adjustTimestamps } from './subtitle-parser';
 import { showToast } from './ui-utils';
+import { playerStore } from './stores/player';
 
 
 export interface PlayerOptions {
@@ -87,6 +88,12 @@ export class VideoPlayer {
         
         // Auto-advance to next item in playlist when video ends
         this.video.addEventListener('ended', () => this.handleVideoEnded());
+        
+        // Dispatch player ready event for Svelte UI
+        setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('streamgo:player-ready'));
+            console.log('🎬 Player ready event dispatched');
+        }, 100);
     }
 
     /**
@@ -270,26 +277,17 @@ export class VideoPlayer {
         const levels = this.hls.levels;
         if (levels.length <= 1) return; // No need for selector if only one quality
 
-        const qualitySelector = document.getElementById('quality-selector');
-        if (!qualitySelector) return;
-
-        qualitySelector.innerHTML = ''; // Clear previous options
-
-        // Add "Auto" option
-        const autoBtn = this.createQualityButton('Auto', -1, () => {
-            if (this.hls) this.hls.currentLevel = -1;
-        });
-        autoBtn.classList.add('active');
-        qualitySelector.appendChild(autoBtn);
-
-        // Add specific quality levels
-        levels.forEach((level, index) => {
-            const label = `${level.height}p`;
-            const btn = this.createQualityButton(label, index, () => {
-                if (this.hls) this.hls.currentLevel = index;
-            });
-            qualitySelector.appendChild(btn);
-        });
+        // Update store with available qualities
+        const qualities = levels.map((level, index) => ({
+            label: `${level.height}p`,
+            index,
+            height: level.height
+        }));
+        
+        playerStore.setQualities(qualities);
+        playerStore.setCurrentQuality(-1); // Auto by default
+        
+        console.log('🎬 Quality levels available:', qualities.length);
     }
 
     /**
@@ -299,102 +297,46 @@ export class VideoPlayer {
         if (!this.dashPlayer) return;
 
         const qualityLevels = this.dashPlayer.getQualityLevels();
-        const qualitySelector = document.getElementById('quality-selector');
-        if (!qualitySelector || qualityLevels.length <= 1) return;
+        if (qualityLevels.length <= 1) return;
 
-        qualitySelector.innerHTML = ''; // Clear previous options
-
-        // Add "Auto" option
-        const autoBtn = this.createQualityButton('Auto', -1, () => {
-            this.dashPlayer?.setQualityLevel(-1);
-        });
-        autoBtn.classList.add('active');
-        qualitySelector.appendChild(autoBtn);
-
-        // Add specific quality levels
-        qualityLevels.forEach((level, index) => {
-            const label = `${level.height}p`;
-            const btn = this.createQualityButton(label, index, () => {
-                this.dashPlayer?.setQualityLevel(index);
-            });
-            qualitySelector.appendChild(btn);
-        });
+        // Update store with available qualities
+        const qualities = qualityLevels.map((level, index) => ({
+            label: `${level.height}p`,
+            index,
+            height: level.height
+        }));
+        
+        playerStore.setQualities(qualities);
+        playerStore.setCurrentQuality(-1); // Auto by default
+        
+        console.log('🎬 DASH quality levels available:', qualities.length);
     }
 
-    /**
-     * Helper to create a quality selector button.
-     */
-    private createQualityButton(label: string, qualityIndex: number, onClick: () => void): HTMLButtonElement {
-        const btn = document.createElement('button');
-        btn.textContent = label;
-        btn.dataset.quality = String(qualityIndex);
-        btn.addEventListener('click', () => {
-            onClick();
-            // Update active state
-            const qualitySelector = document.getElementById('quality-selector');
-            qualitySelector?.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
-        return btn;
-    }
+    // createQualityButton method removed - now handled by Svelte QualitySelector component
 
     /**
      * Sets up the subtitle selector UI based on available tracks.
      */
     private setupSubtitleSelector(): void {
-        const subtitleSelector = document.getElementById('subtitle-selector');
-        if (!subtitleSelector) return;
-
         const tracks = this.getSubtitleTracks();
-        subtitleSelector.innerHTML = ''; // Clear existing options
-
-        // Add "Off" option
-        const offBtn = document.createElement('button');
-        offBtn.textContent = 'Off';
-        offBtn.addEventListener('click', () => {
-            this.disableSubtitles();
-            this.updateActiveSubtitleButton();
-        });
-        subtitleSelector.appendChild(offBtn);
-
-        // Add options for each track
-        tracks.forEach((track, index) => {
-            const trackBtn = document.createElement('button');
-            trackBtn.textContent = track.label || `Track ${index + 1}`;
-            trackBtn.dataset.trackIndex = String(index);
-            trackBtn.addEventListener('click', () => {
-                this.enableSubtitle(index);
-                this.updateActiveSubtitleButton();
-            });
-            subtitleSelector.appendChild(trackBtn);
-        });
-
-        this.updateActiveSubtitleButton();
+        
+        // Update store with available subtitle tracks
+        const subtitleTracks = tracks.map((track, index) => ({
+            label: track.label || `Track ${index + 1}`,
+            index,
+            language: track.language
+        }));
+        
+        playerStore.setSubtitleTracks(subtitleTracks);
+        
+        // Set current subtitle (check which one is showing)
+        const activeIndex = tracks.findIndex(t => t.mode === 'showing');
+        playerStore.setCurrentSubtitle(activeIndex);
+        
+        console.log('💬 Subtitle tracks available:', subtitleTracks.length);
     }
 
-    /**
-     * Updates the visual state of the active subtitle button.
-     */
-    private updateActiveSubtitleButton(): void {
-        const subtitleSelector = document.getElementById('subtitle-selector');
-        if (!subtitleSelector) return;
-
-        const buttons = subtitleSelector.querySelectorAll('button');
-        buttons.forEach(btn => btn.classList.remove('active'));
-
-        const tracks = this.getSubtitleTracks();
-        const activeTrackIndex = tracks.findIndex(t => t.mode === 'showing');
-
-        if (activeTrackIndex === -1) {
-            // "Off" is active
-            const offBtn = subtitleSelector.querySelector('button:not([data-track-index])');
-            offBtn?.classList.add('active');
-        } else {
-            // A specific track is active
-            const activeBtn = subtitleSelector.querySelector(`button[data-track-index="${activeTrackIndex}"]`);
-            activeBtn?.classList.add('active');
-        }
-    }
+    // updateActiveSubtitleButton method removed - now handled by Svelte SubtitleControls component
 
     /**
      * Sets up the event listener for the local subtitle loading button.
@@ -445,6 +387,8 @@ export class VideoPlayer {
             if (offsetDisplay) {
                 offsetDisplay.textContent = `${this.subtitleOffset.toFixed(1)}s`;
             }
+            // Update store
+            playerStore.setSubtitleOffset(this.subtitleOffset);
             this.applySubtitleOffset();
             showToast(`Subtitle offset: ${this.subtitleOffset.toFixed(1)}s`, 'info');
         }
@@ -619,7 +563,16 @@ export class VideoPlayer {
             this.torrentPlayer = null;
         }
         this.hideTorrentStatsUI();
-        document.getElementById('quality-selector')!.innerHTML = '';
+        
+        // Clear quality selector if it exists (backward compatibility)
+        const qualitySelector = document.getElementById('quality-selector');
+        if (qualitySelector) {
+            qualitySelector.innerHTML = '';
+        }
+        
+        // Reset store state
+        playerStore.setQualities([]);
+        playerStore.setSubtitleTracks([]);
     }
 
     /**
@@ -690,6 +643,9 @@ export class VideoPlayer {
         this.originalSubtitleContent.clear();
         this.trackElementMap.clear();
         this.subtitleOffset = 0;
+        
+        // Reset store
+        playerStore.setSubtitleOffset(0);
 
         const offsetDisplay = document.getElementById('subtitle-sync-offset');
         if (offsetDisplay) offsetDisplay.textContent = '0.0s';
@@ -722,6 +678,8 @@ export class VideoPlayer {
         for (let i = 0; i < tracks.length; i++) {
             tracks[i].mode = i === index ? 'showing' : 'hidden';
         }
+        // Update store
+        playerStore.setCurrentSubtitle(index);
     }
 
     /**
@@ -732,12 +690,15 @@ export class VideoPlayer {
         for (let i = 0; i < tracks.length; i++) {
             tracks[i].mode = 'hidden';
         }
+        // Update store
+        playerStore.setCurrentSubtitle(-1);
     }
 
     /**
      * Applies the current subtitle offset to all local subtitle tracks.
+     * Public method for use by Svelte components.
      */
-    private applySubtitleOffset(): void {
+    applySubtitleOffset(): void {
         const tracks = this.getSubtitleTracks();
         for (const track of tracks) {
             const trackElement = this.trackElementMap.get(track);
@@ -1277,16 +1238,13 @@ export class VideoPlayer {
      * Toggle stats overlay visibility
      */
     private toggleStats(): void {
-        if (!this.statsOverlay) return;
-
         this.statsVisible = !this.statsVisible;
+        playerStore.toggleStats();
 
         if (this.statsVisible) {
-            this.statsOverlay.style.display = 'block';
             this.startStatsUpdate();
             showToast('Stats overlay enabled (Ctrl+Shift+D to hide)', 'info');
         } else {
-            this.statsOverlay.style.display = 'none';
             this.stopStatsUpdate();
         }
     }
@@ -1320,12 +1278,17 @@ export class VideoPlayer {
      * Update stats overlay content
      */
     private updateStats(): void {
-        if (!this.statsOverlay || !this.statsVisible) return;
-
-        const contentEl = this.statsOverlay.querySelector('#stats-content');
-        if (!contentEl) return;
+        if (!this.statsVisible) return;
 
         const stats = this.collectStats();
+        
+        // Update store with stats
+        playerStore.setStats(stats);
+        
+        // Also update DOM overlay for backward compatibility
+        if (!this.statsOverlay) return;
+        const contentEl = this.statsOverlay.querySelector('#stats-content');
+        if (!contentEl) return;
 
         contentEl.innerHTML = `
             <div style="margin-bottom: 8px;">

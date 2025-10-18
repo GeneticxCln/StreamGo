@@ -205,8 +205,6 @@ export class AddonManifestLoader {
 
       // Install via Tauri backend
       await invoke('install_addon', {
-        addon_url: loadedAddon.transportUrl,
-        // Backward/compat: some older backends expect camelCase key
         addonUrl: loadedAddon.transportUrl,
       });
 

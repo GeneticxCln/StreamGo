@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 /// Migration trait for implementing version upgrades
 pub trait Migration {
@@ -547,6 +547,158 @@ impl Migration for Migration007FTS5Search {
     }
 }
 
+/// Migration v8: Add local media scanning and storage tables
+struct Migration008LocalMedia;
+
+impl Migration for Migration008LocalMedia {
+    fn version(&self) -> u32 {
+        8
+    }
+
+    fn description(&self) -> &str {
+        "Add local media scanning tables for local file management"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Local media files table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS local_media_files (
+                id TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL UNIQUE,
+                file_name TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                year INTEGER,
+                season INTEGER,
+                episode INTEGER,
+                duration REAL,
+                resolution TEXT,
+                video_codec TEXT,
+                audio_codec TEXT,
+                tmdb_id TEXT,
+                imdb_id TEXT,
+                poster_url TEXT,
+                added_at TEXT NOT NULL,
+                last_modified TEXT NOT NULL,
+                last_scanned TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Scanned directories table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS scanned_directories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                enabled BOOLEAN DEFAULT 1,
+                recursive BOOLEAN DEFAULT 1,
+                last_scan TEXT,
+                file_count INTEGER DEFAULT 0,
+                added_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Local media scan history
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS local_scan_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                directory_path TEXT NOT NULL,
+                scan_started TEXT NOT NULL,
+                scan_completed TEXT,
+                files_found INTEGER DEFAULT 0,
+                files_added INTEGER DEFAULT 0,
+                files_updated INTEGER DEFAULT 0,
+                files_removed INTEGER DEFAULT 0,
+                success BOOLEAN DEFAULT 0,
+                error_message TEXT
+            )",
+            [],
+        )?;
+
+        // Create indexes for local media
+        self.create_local_media_indexes(conn)?;
+
+        tracing::info!("Created local media scanning tables");
+        Ok(())
+    }
+}
+
+impl Migration008LocalMedia {
+    fn create_local_media_indexes(&self, conn: &Connection) -> Result<()> {
+        // Local media files indexes
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_local_media_title 
+             ON local_media_files(title COLLATE NOCASE)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_local_media_year 
+             ON local_media_files(year)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_local_media_season_episode 
+             ON local_media_files(season, episode)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_local_media_tmdb 
+             ON local_media_files(tmdb_id)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_local_media_imdb 
+             ON local_media_files(imdb_id)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_local_media_added 
+             ON local_media_files(added_at DESC)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_local_media_modified 
+             ON local_media_files(last_modified DESC)",
+            [],
+        )?;
+
+        // Scanned directories indexes
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scanned_dirs_enabled 
+             ON scanned_directories(enabled)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scanned_dirs_scan 
+             ON scanned_directories(last_scan DESC)",
+            [],
+        )?;
+
+        // Scan history indexes
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scan_history_started 
+             ON local_scan_history(scan_started DESC)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scan_history_directory 
+             ON local_scan_history(directory_path, scan_started DESC)",
+            [],
+        )?;
+
+        Ok(())
+    }
+}
+
 /// Migration runner
 pub struct MigrationRunner {
     migrations: Vec<Box<dyn Migration>>,
@@ -562,6 +714,7 @@ impl MigrationRunner {
             Box::new(Migration005Episodes),
             Box::new(Migration006AddonConfig),
             Box::new(Migration007FTS5Search),
+            Box::new(Migration008LocalMedia),
         ];
         Self { migrations }
     }

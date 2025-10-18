@@ -162,7 +162,7 @@ export class ContextMenuManager {
         if (!this.currentMediaId) return;
 
         try {
-            await invoke('add_to_watchlist', { media_id: this.currentMediaId });
+            await invoke('add_to_watchlist', { mediaId: this.currentMediaId });
             Toast.success('Added to watchlist');
         } catch (err) {
             console.error('Failed to add to watchlist:', err);
@@ -229,8 +229,8 @@ export class ContextMenuManager {
 
         try {
             await invoke('add_to_playlist', {
-                playlist_id: playlistId,
-                media_id: this.currentMediaId
+                playlistId: playlistId,
+                mediaId: this.currentMediaId
             });
             Toast.success('Added to playlist');
         } catch (err) {

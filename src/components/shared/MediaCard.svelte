@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { MediaItem } from '../../types/tauri';
   
   export let item: MediaItem;
@@ -11,6 +12,36 @@
   const progress = item.progress || 0;
   const duration = item.duration ? item.duration * 60 : 0; // duration is in minutes
   const progressPercent = duration > 0 ? Math.min(100, (progress / duration) * 100) : 0;
+  
+  let imgElement: HTMLImageElement;
+  let isVisible = false;
+  
+  // Use Intersection Observer for efficient lazy loading
+  onMount(() => {
+    if (!imgElement) return;
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            isVisible = true;
+            const img = entry.target as HTMLImageElement;
+            const src = img.dataset.src;
+            if (src && img.src !== src) {
+              img.src = src;
+              img.classList.add('loaded');
+            }
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { rootMargin: '50px' }
+    );
+    
+    observer.observe(imgElement);
+    
+    return () => observer.disconnect();
+  });
   
   function handleClick() {
     // Dispatch custom event that vanilla code can listen to
@@ -26,6 +57,7 @@
   <div class="poster-container">
     <div class="poster-image-layer">
       <img 
+        bind:this={imgElement}
         data-src={posterUrl}
         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect fill='%231a1d2e' width='300' height='450'/%3E%3C/svg%3E"
         alt={item.title}

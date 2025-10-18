@@ -19,6 +19,7 @@ export class DashPlayer {
     private video: HTMLVideoElement;
     private qualityLevels: QualityLevel[] = [];
     private isLoaded: boolean = false;
+    private errorCallbacks: Array<(event: any) => void> = [];
 
     constructor(videoElement: HTMLVideoElement) {
         this.video = videoElement;
@@ -113,12 +114,25 @@ export class DashPlayer {
         // Listen for errors
         this.player.on('error', (event: any) => {
             console.error('DASH error:', event);
+            // Notify external listeners
+            try {
+                this.errorCallbacks.forEach(cb => cb(event));
+            } catch (cbErr) {
+                console.warn('Error in DASH error callback:', cbErr);
+            }
         });
 
         // Listen for playback started
         this.player.on('playbackStarted', () => {
             console.log('DASH playback started');
         });
+    }
+
+    /**
+     * Register an error callback
+     */
+    onError(callback: (event: any) => void): void {
+        this.errorCallbacks.push(callback);
     }
 
     /**

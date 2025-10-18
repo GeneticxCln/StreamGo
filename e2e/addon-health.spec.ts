@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal } from './helpers';
 
 test.describe('Addon Health Display', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await dismissOnboardingModal(page);
   });
 
   test('should display addon health badges in addons section', async ({ page }) => {

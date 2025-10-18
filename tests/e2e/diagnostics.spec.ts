@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal, clearToasts } from './helpers';
 
 test.describe('Diagnostics Dashboard', () => {
   test.beforeEach(async ({ page }) => {
@@ -124,6 +125,10 @@ test.describe('Diagnostics Dashboard', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(2000);
+    
+    // Dismiss onboarding modal if present
+    await dismissOnboardingModal(page);
+    await clearToasts(page);
     
     // Navigate to diagnostics section
     await page.click('.nav-item[data-section="diagnostics"]');

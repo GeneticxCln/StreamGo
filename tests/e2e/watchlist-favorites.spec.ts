@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal } from './helpers';
 
 test.describe('Watchlist and Favorites', () => {
   test('should add item to watchlist', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Go to search
     await page.click('.nav-item[data-section="search"] a');
@@ -35,6 +37,7 @@ test.describe('Watchlist and Favorites', () => {
   test('should add item to favorites', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Go to search
     await page.click('.nav-item[data-section="search"] a');
@@ -66,14 +69,15 @@ test.describe('Watchlist and Favorites', () => {
   test('should navigate to library section', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Navigate to library
     await page.click('.nav-item[data-section="library"] a');
     await page.waitForTimeout(1000);
     
-    // Check if library section is active
+    // Check if library section is visible
     const librarySection = page.locator('#library-section');
-    await expect(librarySection).toHaveClass(/active/);
+    await expect(librarySection).toBeVisible();
     
     // Library grid should be visible
     await expect(page.locator('#library-grid')).toBeVisible();

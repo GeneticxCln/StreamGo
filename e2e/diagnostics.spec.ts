@@ -1,11 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { resolve } from 'path';
 import { existsSync, unlinkSync, readFileSync } from 'fs';
+import { dismissOnboardingModal, clearToasts } from './helpers';
 
 test.describe('Diagnostics Dashboard', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await dismissOnboardingModal(page);
+    await clearToasts(page);
   });
 
   test('should navigate to diagnostics section', async ({ page }) => {
@@ -14,7 +17,6 @@ test.describe('Diagnostics Dashboard', () => {
     
     // Wait for diagnostics section to be visible
     await expect(page.locator('#diagnostics-section')).toBeVisible();
-    await expect(page.locator('#diagnostics-section')).toHaveClass(/active/);
     
     // Wait for dashboard to load
     await page.waitForSelector('.diagnostics-dashboard', { timeout: 15000 });

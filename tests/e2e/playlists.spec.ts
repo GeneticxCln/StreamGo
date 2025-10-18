@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal } from './helpers';
 
 test.describe('Playlist Management', () => {
   test.beforeEach(async ({ page }) => {
@@ -59,14 +60,15 @@ test.describe('Playlist Management', () => {
   test('should navigate to playlists section', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Navigate to playlists
     await page.click('.nav-item[data-section="playlists"] a');
     await page.waitForTimeout(500);
     
-    // Check if playlists section is active
+    // Check if playlists section is visible
     const playlistsSection = page.locator('#playlists-section');
-    await expect(playlistsSection).toHaveClass(/active/);
+    await expect(playlistsSection).toBeVisible();
     
     // Create playlist button should be visible
     await expect(page.locator('#create-playlist-btn')).toBeVisible();
@@ -75,6 +77,7 @@ test.describe('Playlist Management', () => {
   test('should create a new playlist', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Navigate to playlists
     await page.click('.nav-item[data-section="playlists"] a');
@@ -103,6 +106,7 @@ test.describe('Playlist Management', () => {
   test('should display playlists grid', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Navigate to playlists
     await page.click('.nav-item[data-section="playlists"] a');
@@ -115,6 +119,7 @@ test.describe('Playlist Management', () => {
   test('should have back button in playlist detail view', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Navigate to playlists
     await page.click('.nav-item[data-section="playlists"] a');

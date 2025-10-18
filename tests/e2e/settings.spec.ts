@@ -1,5 +1,6 @@
 
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal } from './helpers';
 
 test.describe('Settings', () => {
   test.beforeEach(async ({ page }) => {
@@ -64,6 +65,7 @@ test.describe('Settings', () => {
     await page.goto('/');
     // Wait for app to load
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     // Click settings button
     await page.click('a.nav-item[data-section="settings"]');
     await page.waitForTimeout(500);

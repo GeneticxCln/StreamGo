@@ -28,6 +28,17 @@ export class VideoPlayer {
     private originalSubtitleContent: Map<string, string> = new Map(); // Map<track.src, originalVttContent>
     private trackElementMap: Map<TextTrack, HTMLTrackElement> = new Map(); // Map TextTrack to HTMLTrackElement
     private torrentStatsElement: HTMLElement | null = null;
+    private bufferingOverlay: HTMLElement | null = null;
+    private bufferTimeout: number | null = null;
+    private progressSaveInterval: number | null = null;
+    private statsOverlay: HTMLElement | null = null;
+    private statsUpdateInterval: number | null = null;
+    private statsVisible: boolean = false;
+    private networkAdaptiveEnabled: boolean = true;
+    private lastNetworkChange: number = 0;
+    private retryCount: number = 0;
+    private maxRetries: number = 3;
+    private retryDelay: number = 1000; // Start with 1 second
 
     constructor(options: PlayerOptions) {
         this.container = options.container;
@@ -43,19 +54,52 @@ export class VideoPlayer {
 
         // Also update UI when metadata is loaded (for embedded tracks)
         this.video.addEventListener('loadedmetadata', () => this.setupSubtitleSelector());
+
+        // Setup media session for OS-level controls
+        this.setupMediaSessionHandlers();
+        
+        // Setup buffering indicator
+        this.setupBufferingIndicator();
+        
+        // Setup playback speed controls
+        this.setupSpeedSelector();
+        
+        // Setup streaming stats overlay
+        this.setupStatsOverlay();
+        
+        // Setup network-adaptive quality
+        this.setupNetworkAdaptive();
+
+        // Reset retry counter when playback resumes
+        this.video.addEventListener('playing', () => this.resetRetryCounter());
     }
 
     /**
      * Load and play a video URL (supports HLS and regular video files)
      */
-    loadVideo(url: string, title: string = 'Video'): void {
+    loadVideo(url: string, title: string = 'Video', startTime?: number): void {
         // Update title
         const titleEl = document.getElementById('player-title');
         if (titleEl) {
             titleEl.textContent = title;
         }
 
+        // Update media session metadata
+        this.updateMediaSessionMetadata(title);
+
         this.loadStream(url);
+
+        // Set start time if provided
+        if (startTime && startTime > 0) {
+            const seekToStartTime = () => {
+                this.video.currentTime = startTime;
+                this.video.removeEventListener('loadedmetadata', seekToStartTime);
+            };
+            this.video.addEventListener('loadedmetadata', seekToStartTime);
+        }
+
+        // Start periodic progress saving
+        this.startProgressSaving();
 
         this.show();
     }
@@ -78,6 +122,7 @@ export class VideoPlayer {
             case 'dash':
                 console.log('DASH stream detected. Initializing dash.js...');
                 this.dashPlayer = new DashPlayer(this.video);
+                this.dashPlayer.onError((event) => this.handleDashError(event));
                 this.dashPlayer.load(url);
                 // The quality selector for DASH is set up after the manifest is loaded
                 this.video.addEventListener('loadedmetadata', () => this.setupDashQualitySelector(), { once: true });
@@ -137,20 +182,7 @@ export class VideoPlayer {
             this.hls.on(this.hlsModule.Events.ERROR, (_event, data) => {
                 console.error('HLS error:', data);
                 if (data.fatal && this.hlsModule) {
-                    switch (data.type) {
-                        case this.hlsModule.ErrorTypes.NETWORK_ERROR:
-                            console.log('Network error, trying to recover...');
-                            this.hls?.startLoad();
-                            break;
-                        case this.hlsModule.ErrorTypes.MEDIA_ERROR:
-                            console.log('Media error, trying to recover...');
-                            this.hls?.recoverMediaError();
-                            break;
-                        default:
-                            console.error('Fatal error, cannot recover');
-                            this.destroy();
-                            break;
-                    }
+                    this.handleHlsError(data);
                 }
             });
 
@@ -428,6 +460,23 @@ export class VideoPlayer {
                     e.preventDefault();
                     this.togglePictureInPicture();
                     break;
+                case '<':
+                case ',':
+                    e.preventDefault();
+                    this.decreaseSpeed();
+                    break;
+                case '>':
+                case '.':
+                    e.preventDefault();
+                    this.increaseSpeed();
+                    break;
+                case 'd':
+                    // Ctrl+Shift+D to toggle stats
+                    if (e.ctrlKey && e.shiftKey) {
+                        e.preventDefault();
+                        this.toggleStats();
+                    }
+                    break;
             }
         });
     }
@@ -491,6 +540,9 @@ export class VideoPlayer {
         this.video.pause();
         this.container.style.display = 'none';
         
+        // Stop progress saving
+        this.stopProgressSaving();
+        
         if (this.onCloseCallback) {
             this.onCloseCallback();
         }
@@ -501,6 +553,7 @@ export class VideoPlayer {
      */
     destroy(): void {
         this.cleanupPreviousStream();
+        this.stopProgressSaving();
         this.video.pause();
         this.video.src = '';
         this.video.srcObject = null;
@@ -769,6 +822,296 @@ export class VideoPlayer {
     }
 
     /**
+     * Setup Media Session API handlers for OS-level media controls
+     */
+    private setupMediaSessionHandlers(): void {
+        if (!('mediaSession' in navigator)) {
+            console.log('Media Session API not supported');
+            return;
+        }
+
+        const actionHandlers: [MediaSessionAction, () => void][] = [
+            ['play', () => this.video.play()],
+            ['pause', () => this.video.pause()],
+            ['seekbackward', () => this.seek(-10)],
+            ['seekforward', () => this.seek(10)],
+            ['previoustrack', () => this.close()],
+        ];
+
+        actionHandlers.forEach(([action, handler]) => {
+            try {
+                navigator.mediaSession.setActionHandler(action, handler);
+            } catch (error) {
+                console.warn(`Media session action "${action}" not supported:`, error);
+            }
+        });
+
+        // Update position state on timeupdate
+        this.video.addEventListener('timeupdate', () => {
+            if ('setPositionState' in navigator.mediaSession) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: this.video.duration || 0,
+                        playbackRate: this.video.playbackRate,
+                        position: this.video.currentTime || 0
+                    });
+                } catch (error) {
+                    // Ignore errors when duration is not yet available
+                }
+            }
+        });
+
+        console.log('Media Session API handlers configured');
+    }
+
+    /**
+     * Update Media Session metadata (title, artwork, etc.)
+     */
+    private updateMediaSessionMetadata(title: string, poster?: string): void {
+        if (!('mediaSession' in navigator)) return;
+
+        try {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: title || 'StreamGo Video',
+                artist: 'StreamGo',
+                album: 'Media Center',
+                artwork: poster ? [
+                    { src: poster, sizes: '96x96', type: 'image/jpeg' },
+                    { src: poster, sizes: '128x128', type: 'image/jpeg' },
+                    { src: poster, sizes: '192x192', type: 'image/jpeg' },
+                    { src: poster, sizes: '256x256', type: 'image/jpeg' },
+                    { src: poster, sizes: '384x384', type: 'image/jpeg' },
+                    { src: poster, sizes: '512x512', type: 'image/jpeg' },
+                ] : []
+            });
+        } catch (error) {
+            console.warn('Error setting media session metadata:', error);
+        }
+    }
+
+    /**
+     * Setup buffering indicator
+     */
+    private setupBufferingIndicator(): void {
+        // Create buffering overlay
+        this.bufferingOverlay = this.createBufferingOverlay();
+
+        // Show buffering indicator when video is waiting
+        this.video.addEventListener('waiting', () => {
+            if (this.bufferTimeout) clearTimeout(this.bufferTimeout);
+            
+            // Debounce to avoid flashing on quick buffers
+            this.bufferTimeout = window.setTimeout(() => {
+                if (this.bufferingOverlay) {
+                    this.bufferingOverlay.style.display = 'flex';
+                    this.updateBufferHealthDisplay();
+                }
+            }, 200);
+        });
+
+        // Hide buffering indicator when playback starts/resumes
+        this.video.addEventListener('playing', () => {
+            if (this.bufferTimeout) clearTimeout(this.bufferTimeout);
+            if (this.bufferingOverlay) {
+                this.bufferingOverlay.style.display = 'none';
+            }
+        });
+
+        this.video.addEventListener('canplay', () => {
+            if (this.bufferTimeout) clearTimeout(this.bufferTimeout);
+            if (this.bufferingOverlay) {
+                this.bufferingOverlay.style.display = 'none';
+            }
+        });
+
+        // Update buffer health periodically when buffering
+        setInterval(() => {
+            if (this.bufferingOverlay?.style.display === 'flex') {
+                this.updateBufferHealthDisplay();
+            }
+        }, 500);
+    }
+
+    /**
+     * Create buffering overlay element
+     */
+    private createBufferingOverlay(): HTMLElement {
+        const overlay = document.createElement('div');
+        overlay.className = 'buffering-overlay';
+        overlay.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 998;
+            gap: 16px;
+        `;
+
+        overlay.innerHTML = `
+            <div class="spinner" style="
+                border: 4px solid rgba(255, 255, 255, 0.3);
+                border-top: 4px solid white;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                animation: spin 1s linear infinite;
+            "></div>
+            <div style="color: white; font-size: 18px; font-weight: 500;">Buffering...</div>
+            <div id="buffer-health" style="
+                color: rgba(255, 255, 255, 0.8);
+                font-size: 14px;
+                font-family: monospace;
+            "></div>
+        `;
+
+        // Add spinner animation if not already in styles
+        if (!document.querySelector('#player-spinner-style')) {
+            const style = document.createElement('style');
+            style.id = 'player-spinner-style';
+            style.textContent = `
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        this.container.appendChild(overlay);
+        return overlay;
+    }
+
+    /**
+     * Setup playback speed selector
+     */
+    private setupSpeedSelector(): void {
+        const speedSelector = document.getElementById('speed-selector');
+        if (!speedSelector) return;
+
+        const speedOptions = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+        speedOptions.forEach(speed => {
+            const btn = document.createElement('button');
+            btn.textContent = `${speed}x`;
+            btn.dataset.speed = String(speed);
+            
+            if (speed === 1) {
+                btn.classList.add('active');
+            }
+
+            btn.addEventListener('click', () => {
+                this.setPlaybackSpeed(speed);
+                // Update active state
+                speedSelector.querySelectorAll('button:not(#speed-toggle-btn)').forEach(b => {
+                    b.classList.remove('active');
+                });
+                btn.classList.add('active');
+            });
+
+            speedSelector.appendChild(btn);
+        });
+
+        // Update the toggle button text when speed changes
+        this.video.addEventListener('ratechange', () => {
+            const toggleBtn = document.getElementById('speed-toggle-btn');
+            if (toggleBtn) {
+                toggleBtn.textContent = `${this.video.playbackRate}x`;
+            }
+        });
+    }
+
+    /**
+     * Set playback speed
+     */
+    private setPlaybackSpeed(speed: number): void {
+        this.video.playbackRate = speed;
+        showToast(`Playback speed: ${speed}x`, 'info');
+    }
+
+    /**
+     * Increase playback speed
+     */
+    private increaseSpeed(): void {
+        const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+        const currentSpeed = this.video.playbackRate;
+        const currentIndex = speeds.findIndex(s => Math.abs(s - currentSpeed) < 0.01);
+        
+        if (currentIndex < speeds.length - 1) {
+            const newSpeed = speeds[currentIndex + 1];
+            this.setPlaybackSpeed(newSpeed);
+            this.updateSpeedButtonState(newSpeed);
+        }
+    }
+
+    /**
+     * Decrease playback speed
+     */
+    private decreaseSpeed(): void {
+        const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+        const currentSpeed = this.video.playbackRate;
+        const currentIndex = speeds.findIndex(s => Math.abs(s - currentSpeed) < 0.01);
+        
+        if (currentIndex > 0) {
+            const newSpeed = speeds[currentIndex - 1];
+            this.setPlaybackSpeed(newSpeed);
+            this.updateSpeedButtonState(newSpeed);
+        }
+    }
+
+    /**
+     * Update speed button active state
+     */
+    private updateSpeedButtonState(speed: number): void {
+        const speedSelector = document.getElementById('speed-selector');
+        if (!speedSelector) return;
+
+        speedSelector.querySelectorAll('button:not(#speed-toggle-btn)').forEach(btn => {
+            const el = btn as HTMLButtonElement;
+            const btnSpeed = parseFloat(el.dataset.speed || '1');
+            if (Math.abs(btnSpeed - speed) < 0.01) {
+                el.classList.add('active');
+            } else {
+                el.classList.remove('active');
+            }
+        });
+    }
+
+    /**
+     * Update buffer health display
+     */
+    private updateBufferHealthDisplay(): void {
+        if (!this.bufferingOverlay) return;
+
+        const healthEl = this.bufferingOverlay.querySelector('#buffer-health');
+        if (!healthEl) return;
+
+        try {
+            const buffer = this.video.buffered;
+            if (buffer.length > 0) {
+                const bufferedEnd = buffer.end(buffer.length - 1);
+                const currentTime = this.video.currentTime;
+                const bufferHealth = Math.max(0, bufferedEnd - currentTime);
+
+                if (bufferHealth > 0) {
+                    healthEl.textContent = `Buffer: ${bufferHealth.toFixed(1)}s`;
+                } else {
+                    healthEl.textContent = 'Loading...';
+                }
+            } else {
+                healthEl.textContent = 'Loading...';
+            }
+        } catch (error) {
+            // Ignore errors during buffer health calculation
+        }
+    }
+
+    /**
      * Setup torrent stats UI
      */
     private setupTorrentStatsUI(): void {
@@ -819,6 +1162,615 @@ export class VideoPlayer {
     private hideTorrentStatsUI(): void {
         if (this.torrentStatsElement) {
             this.torrentStatsElement.style.display = 'none';
+        }
+    }
+
+    /**
+     * Start periodic progress saving (every 30 seconds)
+     */
+    private startProgressSaving(): void {
+        // Clear any existing interval
+        this.stopProgressSaving();
+
+        // Save progress every 30 seconds
+        this.progressSaveInterval = window.setInterval(() => {
+            // Trigger progress save through app
+            const app = (window as any).app;
+            if (app && typeof app.updateWatchProgress === 'function') {
+                app.updateWatchProgress();
+            }
+        }, 30000); // 30 seconds
+    }
+
+    /**
+     * Stop periodic progress saving
+     */
+    private stopProgressSaving(): void {
+        if (this.progressSaveInterval) {
+            clearInterval(this.progressSaveInterval);
+            this.progressSaveInterval = null;
+        }
+    }
+
+    /**
+     * Setup streaming stats overlay
+     */
+    private setupStatsOverlay(): void {
+        this.statsOverlay = this.createStatsOverlay();
+    }
+
+    /**
+     * Create stats overlay element
+     */
+    private createStatsOverlay(): HTMLElement {
+        const overlay = document.createElement('div');
+        overlay.className = 'stats-overlay';
+        overlay.style.cssText = `
+            position: absolute;
+            top: 60px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            display: none;
+            z-index: 999;
+            min-width: 300px;
+            backdrop-filter: blur(10px);
+        `;
+
+        overlay.innerHTML = `
+            <div style="margin-bottom: 12px; font-weight: bold; color: #fff; font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">
+                📊 Streaming Stats <span style="color: #666; font-size: 11px; float: right;">Ctrl+Shift+D</span>
+            </div>
+            <div id="stats-content"></div>
+        `;
+
+        this.container.appendChild(overlay);
+        return overlay;
+    }
+
+    /**
+     * Toggle stats overlay visibility
+     */
+    private toggleStats(): void {
+        if (!this.statsOverlay) return;
+
+        this.statsVisible = !this.statsVisible;
+
+        if (this.statsVisible) {
+            this.statsOverlay.style.display = 'block';
+            this.startStatsUpdate();
+            showToast('Stats overlay enabled (Ctrl+Shift+D to hide)', 'info');
+        } else {
+            this.statsOverlay.style.display = 'none';
+            this.stopStatsUpdate();
+        }
+    }
+
+    /**
+     * Start stats update interval
+     */
+    private startStatsUpdate(): void {
+        this.stopStatsUpdate();
+        
+        // Update immediately
+        this.updateStats();
+
+        // Then update every second
+        this.statsUpdateInterval = window.setInterval(() => {
+            this.updateStats();
+        }, 1000);
+    }
+
+    /**
+     * Stop stats update interval
+     */
+    private stopStatsUpdate(): void {
+        if (this.statsUpdateInterval) {
+            clearInterval(this.statsUpdateInterval);
+            this.statsUpdateInterval = null;
+        }
+    }
+
+    /**
+     * Update stats overlay content
+     */
+    private updateStats(): void {
+        if (!this.statsOverlay || !this.statsVisible) return;
+
+        const contentEl = this.statsOverlay.querySelector('#stats-content');
+        if (!contentEl) return;
+
+        const stats = this.collectStats();
+
+        contentEl.innerHTML = `
+            <div style="margin-bottom: 8px;">
+                <div style="color: #888;">Video</div>
+                <div>Resolution: <span style="color: #00ff00;">${stats.resolution}</span></div>
+                <div>FPS: <span style="color: #00ff00;">${stats.fps}</span></div>
+                <div>Bitrate: <span style="color: #00ff00;">${stats.bitrate}</span></div>
+                <div>Format: <span style="color: #00ff00;">${stats.format}</span></div>
+            </div>
+            <div style="margin-bottom: 8px;">
+                <div style="color: #888;">Playback</div>
+                <div>Speed: <span style="color: #00ff00;">${stats.playbackRate}x</span></div>
+                <div>Volume: <span style="color: #00ff00;">${stats.volume}%</span></div>
+                <div>Time: <span style="color: #00ff00;">${stats.currentTime} / ${stats.duration}</span></div>
+            </div>
+            <div style="margin-bottom: 8px;">
+                <div style="color: #888;">Buffer</div>
+                <div>Buffered: <span style="color: ${stats.bufferHealth > 10 ? '#00ff00' : stats.bufferHealth > 5 ? '#ffaa00' : '#ff0000'};">${stats.bufferHealth}s</span></div>
+                <div>State: <span style="color: #00ff00;">${stats.readyState}</span></div>
+            </div>
+            <div style="margin-bottom: 8px;">
+                <div style="color: #888;">Network</div>
+                <div>Type: <span style="color: #00ff00;">${stats.networkType}</span></div>
+                <div>Downlink: <span style="color: #00ff00;">${stats.downlink}</span></div>
+                <div>Latency: <span style="color: #00ff00;">${stats.rtt}ms</span></div>
+            </div>
+            ${stats.hlsStats ? `
+            <div style="margin-bottom: 8px;">
+                <div style="color: #888;">HLS</div>
+                <div>Level: <span style="color: #00ff00;">${stats.hlsStats.currentLevel}</span></div>
+                <div>Dropped: <span style="color: ${stats.hlsStats.droppedFrames > 0 ? '#ff0000' : '#00ff00'};">${stats.hlsStats.droppedFrames}</span></div>
+            </div>
+            ` : ''}
+            ${stats.dashStats ? `
+            <div style="margin-bottom: 8px;">
+                <div style="color: #888;">DASH</div>
+                <div>Quality: <span style="color: #00ff00;">${stats.dashStats.currentQuality}</span></div>
+                <div>Bitrate: <span style="color: #00ff00;">${stats.dashStats.currentBitrate} kbps</span></div>
+            </div>
+            ` : ''}
+        `;
+    }
+
+    /**
+     * Collect streaming statistics
+     */
+    private collectStats(): any {
+        const formatTime = (seconds: number): string => {
+            if (!isFinite(seconds)) return '--:--';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            return `${m}:${s.toString().padStart(2, '0')}`;
+        };
+
+        const formatBytes = (bytes: number): string => {
+            if (bytes === 0) return '0 bps';
+            const k = 1000;
+            const sizes = ['bps', 'kbps', 'Mbps', 'Gbps'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        };
+
+        // Overall bitrate display (if available)
+        let bitrateDisplay = 'N/A';
+        if (this.dashPlayer) {
+            const currentBps = this.dashPlayer.getCurrentBitrate();
+            if (currentBps > 0) bitrateDisplay = formatBytes(currentBps);
+        }
+
+        // Basic video stats
+        const resolution = this.video.videoWidth && this.video.videoHeight 
+            ? `${this.video.videoWidth}x${this.video.videoHeight}`
+            : 'N/A';
+
+        // Calculate FPS (approximate)
+        let fps = 'N/A';
+        if ((this.video as any).getVideoPlaybackQuality) {
+            const quality = (this.video as any).getVideoPlaybackQuality();
+            const totalFrames = quality.totalVideoFrames || 0;
+            const droppedFrames = quality.droppedVideoFrames || 0;
+            fps = totalFrames > 0 ? `${Math.round((totalFrames - droppedFrames) / this.video.currentTime)}` : 'N/A';
+        }
+
+        // Buffer health
+        let bufferHealth = 0;
+        try {
+            const buffer = this.video.buffered;
+            if (buffer.length > 0) {
+                const bufferedEnd = buffer.end(buffer.length - 1);
+                bufferHealth = Math.max(0, bufferedEnd - this.video.currentTime);
+            }
+        } catch (e) {
+            // Ignore
+        }
+
+        // Network info
+        const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+        const networkType = connection?.effectiveType || 'unknown';
+        const downlink = connection?.downlink ? `${connection.downlink} Mbps` : 'N/A';
+        const rtt = connection?.rtt || 'N/A';
+
+        // Ready state
+        const readyStates = ['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'];
+        const readyState = readyStates[this.video.readyState] || 'UNKNOWN';
+
+        // HLS stats
+        let hlsStats = null;
+        if (this.hls) {
+            const currentLevel = this.hls.currentLevel;
+            const levels = this.hls.levels;
+            const droppedFrames = (this.video as any).getVideoPlaybackQuality?.()?.droppedVideoFrames || 0;
+            hlsStats = {
+                currentLevel: currentLevel >= 0 && levels[currentLevel] ? `${levels[currentLevel].height}p` : 'Auto',
+                droppedFrames
+            };
+        }
+
+        // DASH stats
+        let dashStats = null;
+        if (this.dashPlayer) {
+            const stats = this.dashPlayer.getStats();
+            if (stats) {
+                dashStats = {
+                    currentQuality: stats.currentQuality >= 0 ? `Level ${stats.currentQuality}` : 'Auto',
+                    currentBitrate: Math.round(stats.currentBitrate / 1000)
+                };
+            }
+        }
+
+        return {
+            resolution,
+            fps,
+            bitrate: bitrateDisplay,
+            format: this.video.currentSrc ? this.detectFormat(this.video.currentSrc) : 'N/A',
+            playbackRate: this.video.playbackRate,
+            volume: Math.round(this.video.volume * 100),
+            currentTime: formatTime(this.video.currentTime),
+            duration: formatTime(this.video.duration),
+            bufferHealth: bufferHealth.toFixed(1),
+            readyState,
+            networkType,
+            downlink,
+            rtt,
+            hlsStats,
+            dashStats
+        };
+    }
+
+    /**
+     * Detect stream format from URL
+     */
+    private detectFormat(url: string): string {
+        if (url.includes('.m3u8')) return 'HLS';
+        if (url.includes('.mpd')) return 'DASH';
+        if (url.includes('magnet:')) return 'Torrent';
+        if (url.includes('.mp4')) return 'MP4';
+        if (url.includes('.webm')) return 'WebM';
+        if (url.includes('.mkv')) return 'MKV';
+        return 'Unknown';
+    }
+
+    /**
+     * Setup network-adaptive quality adjustment
+     */
+    private setupNetworkAdaptive(): void {
+        // Check if Network Information API is available
+        const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+        
+        if (!connection) {
+            console.log('Network Information API not supported - adaptive quality disabled');
+            return;
+        }
+
+        // Listen for network changes
+        connection.addEventListener('change', () => {
+            if (!this.networkAdaptiveEnabled) return;
+            
+            // Debounce network changes (don't react too quickly)
+            const now = Date.now();
+            if (now - this.lastNetworkChange < 5000) return;
+            this.lastNetworkChange = now;
+
+            this.adaptToNetworkConditions(connection);
+        });
+
+        // Initial adaptation
+        this.adaptToNetworkConditions(connection);
+
+        console.log('Network-adaptive quality enabled');
+    }
+
+    /**
+     * Adapt streaming quality based on network conditions
+     */
+    private adaptToNetworkConditions(connection: any): void {
+        const effectiveType = connection.effectiveType; // 'slow-2g', '2g', '3g', '4g'
+        const downlink = connection.downlink; // Mbps
+        const rtt = connection.rtt; // ms (latency)
+        const saveData = connection.saveData; // boolean
+
+        console.log(`Network changed: ${effectiveType}, ${downlink} Mbps, ${rtt}ms RTT, saveData: ${saveData}`);
+
+        // If user has enabled data saver, force lowest quality
+        if (saveData) {
+            this.adjustQualityForNetwork('lowest', 'Data Saver mode detected');
+            return;
+        }
+
+        // Adapt based on effective network type and downlink speed
+        if (effectiveType === 'slow-2g' || effectiveType === '2g' || downlink < 1) {
+            // Very slow connection - lowest quality
+            this.adjustQualityForNetwork('lowest', `Slow connection (${effectiveType})`);
+        } else if (effectiveType === '3g' || downlink < 2.5) {
+            // Moderate connection - medium quality (480p/720p)
+            this.adjustQualityForNetwork('medium', `Moderate connection (${effectiveType})`);
+        } else if (downlink >= 2.5 && downlink < 10) {
+            // Good connection - high quality (720p/1080p)
+            this.adjustQualityForNetwork('high', `Good connection (${downlink} Mbps)`);
+        } else if (downlink >= 10) {
+            // Excellent connection - auto/highest quality
+            this.adjustQualityForNetwork('auto', `Excellent connection (${downlink} Mbps)`);
+        }
+    }
+
+    /**
+     * Adjust quality based on network tier
+     */
+    private adjustQualityForNetwork(tier: 'lowest' | 'medium' | 'high' | 'auto', reason: string): void {
+        // HLS quality adjustment
+        if (this.hls && this.hls.levels && this.hls.levels.length > 1) {
+            const levels = this.hls.levels;
+            let targetLevel = -1; // -1 = auto
+
+            switch (tier) {
+                case 'lowest':
+                    // Find lowest quality level
+                    targetLevel = 0;
+                    break;
+                case 'medium':
+                    // Find middle quality (~480p-720p)
+                    const mediumLevels = levels.filter(l => l.height >= 480 && l.height <= 720);
+                    if (mediumLevels.length > 0) {
+                        const mediumLevel = mediumLevels[Math.floor(mediumLevels.length / 2)];
+                        targetLevel = levels.indexOf(mediumLevel);
+                    } else {
+                        targetLevel = Math.floor(levels.length / 2);
+                    }
+                    break;
+                case 'high':
+                    // Find high quality (~1080p)
+                    const highLevels = levels.filter(l => l.height >= 720 && l.height <= 1080);
+                    if (highLevels.length > 0) {
+                        const highLevel = highLevels[highLevels.length - 1];
+                        targetLevel = levels.indexOf(highLevel);
+                    } else {
+                        targetLevel = Math.max(0, levels.length - 2);
+                    }
+                    break;
+                case 'auto':
+                    targetLevel = -1; // Enable ABR
+                    break;
+            }
+
+            if (this.hls.currentLevel !== targetLevel) {
+                this.hls.currentLevel = targetLevel;
+                const qualityName = targetLevel >= 0 ? `${levels[targetLevel].height}p` : 'Auto';
+                showToast(`Quality adjusted to ${qualityName} (${reason})`, 'info');
+                console.log(`HLS quality adjusted to level ${targetLevel} (${qualityName})`);
+            }
+        }
+
+        // DASH quality adjustment
+        if (this.dashPlayer && this.dashPlayer.isReady()) {
+            const levels = this.dashPlayer.getQualityLevels();
+            if (levels.length > 1) {
+                let targetLevel = -1; // -1 = auto
+
+                switch (tier) {
+                    case 'lowest':
+                        targetLevel = 0;
+                        break;
+                    case 'medium':
+                        const mediumLevels = levels.filter(l => l.height >= 480 && l.height <= 720);
+                        if (mediumLevels.length > 0) {
+                            targetLevel = mediumLevels[Math.floor(mediumLevels.length / 2)].qualityIndex;
+                        } else {
+                            targetLevel = Math.floor(levels.length / 2);
+                        }
+                        break;
+                    case 'high':
+                        const highLevels = levels.filter(l => l.height >= 720 && l.height <= 1080);
+                        if (highLevels.length > 0) {
+                            targetLevel = highLevels[highLevels.length - 1].qualityIndex;
+                        } else {
+                            targetLevel = Math.max(0, levels.length - 2);
+                        }
+                        break;
+                    case 'auto':
+                        targetLevel = -1;
+                        break;
+                }
+
+                if (this.dashPlayer.getCurrentQualityLevel() !== targetLevel) {
+                    this.dashPlayer.setQualityLevel(targetLevel);
+                    const qualityName = targetLevel >= 0 ? `${levels[targetLevel].height}p` : 'Auto';
+                    showToast(`Quality adjusted to ${qualityName} (${reason})`, 'info');
+                    console.log(`DASH quality adjusted to level ${targetLevel} (${qualityName})`);
+                }
+            }
+        }
+    }
+
+    /**
+     * Enable/disable network-adaptive quality
+     */
+    setNetworkAdaptive(enabled: boolean): void {
+        this.networkAdaptiveEnabled = enabled;
+        console.log(`Network-adaptive quality: ${enabled ? 'enabled' : 'disabled'}`);
+        
+        if (enabled) {
+            showToast('Network-adaptive quality enabled', 'success');
+        } else {
+            showToast('Network-adaptive quality disabled', 'info');
+        }
+    }
+
+    /**
+     * Handle HLS fatal errors with retry and quality downgrade
+     */
+    private async handleHlsError(data: any): Promise<void> {
+        if (!this.hlsModule || !this.hls) return;
+
+        const errorType = data.type;
+        const errorDetails = data.details;
+
+        console.error(`HLS fatal error: ${errorType} - ${errorDetails}`);
+
+        switch (errorType) {
+            case this.hlsModule.ErrorTypes.NETWORK_ERROR:
+                await this.handleNetworkError();
+                break;
+                
+            case this.hlsModule.ErrorTypes.MEDIA_ERROR:
+                await this.handleMediaError();
+                break;
+                
+            default:
+                console.error('Unrecoverable HLS error');
+                showToast('Playback failed. Please try another source.', 'error');
+                break;
+        }
+    }
+
+    /**
+     * Handle network errors with exponential backoff retry
+     */
+    private async handleNetworkError(): Promise<void> {
+        if (this.retryCount >= this.maxRetries) {
+            console.error('Max retries reached for network error');
+            showToast('Network connection lost. Please check your internet.', 'error');
+            this.retryCount = 0;
+            return;
+        }
+
+        this.retryCount++;
+        const delay = this.retryDelay * Math.pow(2, this.retryCount - 1); // Exponential backoff
+
+        console.log(`Retry ${this.retryCount}/${this.maxRetries} after ${delay}ms...`);
+        showToast(`Connection lost. Retrying (${this.retryCount}/${this.maxRetries})...`, 'info');
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+        try {
+            this.hls?.startLoad();
+            console.log('HLS restart initiated');
+        } catch (err) {
+            console.error('Failed to restart HLS:', err);
+        }
+    }
+
+    /**
+     * Handle media errors with quality downgrade
+     */
+    private async handleMediaError(): Promise<void> {
+        console.log('Attempting to recover from media error...');
+
+        try {
+            // First attempt: try standard recovery
+            this.hls?.recoverMediaError();
+            showToast('Media error detected. Attempting recovery...', 'warning');
+
+            // Wait a bit to see if recovery works
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // If we're still here, try downgrading quality
+            if (this.hls && this.hls.levels && this.hls.levels.length > 1) {
+                const currentLevel = this.hls.currentLevel;
+                
+                if (currentLevel > 0 || currentLevel === -1) {
+                    // Downgrade to lowest quality
+                    this.hls.currentLevel = 0;
+                    console.log('Downgraded to lowest quality for stability');
+                    showToast('Switched to lower quality for stability', 'info');
+                } else {
+                    // Already at lowest quality, try swapping buffer
+                    console.log('Attempting buffer swap recovery...');
+                    this.hls.swapAudioCodec();
+                    this.hls.recoverMediaError();
+                }
+            }
+        } catch (err) {
+            console.error('Media error recovery failed:', err);
+            showToast('Unable to recover playback. Try reloading.', 'error');
+        }
+    }
+
+    /**
+     * Handle DASH errors
+     */
+    private handleDashError(error: any): void {
+        console.error('DASH error:', error);
+
+        if (!this.dashPlayer) return;
+
+        // Check if it's a network error
+        if (error.code === 'MANIFEST_LOAD_ERROR' || error.code === 'SEGMENT_LOAD_ERROR') {
+            this.handleDashNetworkError();
+        } else if (error.code === 'MEDIA_ERROR') {
+            this.handleDashMediaError();
+        } else {
+            showToast('DASH playback error. Please try reloading.', 'error');
+        }
+    }
+
+    /**
+     * Handle DASH network errors
+     */
+    private async handleDashNetworkError(): Promise<void> {
+        if (this.retryCount >= this.maxRetries) {
+            console.error('Max retries reached for DASH network error');
+            showToast('Network connection lost. Please check your internet.', 'error');
+            this.retryCount = 0;
+            return;
+        }
+
+        this.retryCount++;
+        const delay = this.retryDelay * Math.pow(2, this.retryCount - 1);
+
+        console.log(`DASH retry ${this.retryCount}/${this.maxRetries} after ${delay}ms...`);
+        showToast(`Connection lost. Retrying (${this.retryCount}/${this.maxRetries})...`, 'info');
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+        // DASH player should auto-retry, but we can also try to reset if available
+        console.log('DASH attempting auto-recovery...');
+    }
+
+    /**
+     * Handle DASH media errors
+     */
+    private handleDashMediaError(): void {
+        console.log('DASH media error - attempting quality downgrade...');
+
+        if (!this.dashPlayer) return;
+
+        const levels = this.dashPlayer.getQualityLevels();
+        if (levels.length > 1) {
+            // Downgrade to lowest quality
+            this.dashPlayer.setQualityLevel(0);
+            showToast('Switched to lower quality for stability', 'info');
+            console.log('DASH downgraded to lowest quality');
+        } else {
+            showToast('Unable to recover DASH playback. Try reloading.', 'error');
+        }
+    }
+
+    /**
+     * Reset retry counter (call when playback succeeds)
+     */
+    private resetRetryCounter(): void {
+        if (this.retryCount > 0) {
+            console.log('Playback recovered successfully. Resetting retry counter.');
+            this.retryCount = 0;
         }
     }
 }

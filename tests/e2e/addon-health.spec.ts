@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal } from './helpers';
 
 test.describe('Addon Health Display', () => {
   test.beforeEach(async ({ page }) => {
@@ -140,6 +141,9 @@ test.describe('Addon Health Display', () => {
     
     await page.goto('/');
     await page.waitForTimeout(1000);
+    
+    // Dismiss onboarding modal if present
+    await dismissOnboardingModal(page);
     
     // Navigate to addons section
     await page.click('.nav-item[data-section="addons"]');

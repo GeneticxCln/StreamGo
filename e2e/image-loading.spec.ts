@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal } from './helpers';
 
 test.describe('Image Lazy Loading', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await dismissOnboardingModal(page);
   });
 
   test('should load images with placeholders initially', async ({ page }) => {

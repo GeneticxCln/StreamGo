@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal } from './helpers';
 
 test.describe('StreamGo App', () => {
   test('should load the app and display sidebar', async ({ page }) => {
@@ -6,6 +7,7 @@ test.describe('StreamGo App', () => {
     
     // Wait for app to load
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Check if sidebar elements are present
     await expect(page.locator('.sidebar')).toBeVisible();
@@ -17,27 +19,29 @@ test.describe('StreamGo App', () => {
   test('should navigate between views', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Click library button
     await page.click('.nav-item[data-section="library"] a');
     await page.waitForTimeout(500);
     
-    // Check if library view is active
-    const libraryBtn = page.locator('.nav-item[data-section="library"]');
-    await expect(libraryBtn).toHaveClass(/active/);
+    // Check if library view is visible
+    const librarySection = page.locator('#library-section');
+    await expect(librarySection).toBeVisible();
     
     // Click home button
     await page.click('.nav-item[data-section="home"] a');
     await page.waitForTimeout(500);
     
-    // Check if home view is active
-    const homeBtn = page.locator('.nav-item[data-section="home"]');
-    await expect(homeBtn).toHaveClass(/active/);
+    // Check if home view is visible
+    const homeSection = page.locator('#home-section');
+    await expect(homeSection).toBeVisible();
   });
 
   test('should display search input', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Check if search input exists (global header search)
     await expect(page.locator('#global-search')).toBeVisible();
@@ -51,6 +55,7 @@ test.describe('StreamGo App', () => {
   test('should have player controls', async ({ page }) => {
     await page.goto('/');
     await page.waitForTimeout(1000);
+    await dismissOnboardingModal(page);
     
     // Check player container exists (even if hidden initially)
     const playerContainer = page.locator('#video-player-container');

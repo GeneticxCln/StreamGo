@@ -2098,10 +2098,22 @@ export class StreamGoApp {
                 externalPlayerManager.setCurrentStream(streamUrl);
             }
             
+            // Check for existing watch progress
+            let startTime = 0;
+            if (this.currentMedia) {
+                const progress = this.currentMedia.progress || 0;
+                if (progress > 30) { // Only resume if more than 30 seconds watched
+                    const shouldResume = await this.showResumePrompt(progress);
+                    if (shouldResume) {
+                        startTime = progress;
+                    }
+                }
+            }
+            
             // Use the global player instance
             const player = (window as any).player;
             if (player) {
-                player.loadVideo(streamUrl, this.currentMedia?.title || 'Video');
+                player.loadVideo(streamUrl, this.currentMedia?.title || 'Video', startTime);
             } else {
                 console.error('Player not initialized');
                 Toast.error('Video player not available');
@@ -2149,12 +2161,81 @@ export class StreamGoApp {
             const duration = video.duration || 0;
             const watched = duration > 0 && (progress / duration) > 0.95;
 
-            await invoke('update_watch_progress', { media_id: this.currentMedia.id, progress, watched });
+            // Don't save progress if it's near the end (already marked as watched)
+            if (watched) {
+                await invoke('update_watch_progress', { media_id: this.currentMedia.id, progress: 0, watched: true });
+            } else if (progress > 0) {
+                await invoke('update_watch_progress', { media_id: this.currentMedia.id, progress, watched: false });
+            }
 
             console.log(`Progress updated: ${progress}s, watched: ${watched}`);
         } catch (err) {
             console.error('Error updating watch progress:', err);
         }
+    }
+
+    /**
+     * Show resume prompt modal
+     */
+    private async showResumePrompt(progressSeconds: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            const formatTime = (seconds: number): string => {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                if (hours > 0) {
+                    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+                return `${minutes}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.style.display = 'flex';
+            modal.style.zIndex = '10000';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h3>⏱️ Resume Playback?</h3>
+                    </div>
+                    <div class="modal-body" style="padding: 20px;">
+                        <p style="margin-bottom: 20px;">You were watching this at <strong>${formatTime(progressSeconds)}</strong>.</p>
+                        <p style="color: var(--text-secondary); font-size: 14px;">Would you like to resume from where you left off?</p>
+                    </div>
+                    <div class="modal-footer" style="display: flex; gap: 12px; justify-content: flex-end; padding: 16px 20px;">
+                        <button class="btn btn-secondary" id="resume-start-over">Start Over</button>
+                        <button class="btn btn-primary" id="resume-continue">Resume</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            const resumeBtn = modal.querySelector('#resume-continue');
+            const startOverBtn = modal.querySelector('#resume-start-over');
+
+            const cleanup = () => {
+                modal.remove();
+            };
+
+            resumeBtn?.addEventListener('click', () => {
+                cleanup();
+                resolve(true);
+            });
+
+            startOverBtn?.addEventListener('click', () => {
+                cleanup();
+                resolve(false);
+            });
+
+            // Auto-resume after 10 seconds
+            setTimeout(() => {
+                if (modal.parentElement) {
+                    cleanup();
+                    resolve(true);
+                }
+            }, 10000);
+        });
     }
 
     private attachSubtitleSelectorListeners() {

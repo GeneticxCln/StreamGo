@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { dismissOnboardingModal, setupAppMock } from './helpers';
 
 test.describe('DASH Player Integration', () => {
   test.beforeEach(async ({ page }) => {
@@ -19,6 +20,10 @@ test.describe('DASH Player Integration', () => {
 
     await page.goto('/');
     await page.waitForTimeout(500);
+    
+    // Dismiss onboarding modal and setup app mock
+    await dismissOnboardingModal(page);
+    await setupAppMock(page);
   });
 
   test('should initialize DASH player for .mpd URLs', async ({ page }) => {

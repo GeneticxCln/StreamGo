@@ -89,6 +89,19 @@ pub struct UserProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamWithSource {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub addon_id: String,
+    pub addon_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPreferences {
     #[serde(default = "default_version")]
     pub version: u32,
@@ -340,6 +353,7 @@ pub struct SearchFilters {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddonHealthSummary {
     pub addon_id: String,
+    pub addon_name: Option<String>, // Joined from addons table
     pub last_check: i64,
     pub success_rate: f64,
     pub avg_response_time_ms: i64,

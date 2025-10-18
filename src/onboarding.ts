@@ -14,8 +14,10 @@ export class OnboardingManager {
      * Check if onboarding should be shown (first launch)
      */
     shouldShowOnboarding(): boolean {
-        const completed = localStorage.getItem('onboarding_complete');
-        return completed !== 'true';
+        // Onboarding disabled - users can explore app directly
+        return false;
+        // const completed = localStorage.getItem('onboarding_complete');
+        // return completed !== 'true';
     }
 
     /**

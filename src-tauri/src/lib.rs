@@ -6,11 +6,13 @@ pub mod api;
 mod cache;
 mod calendar;
 mod database;
+mod i18n;
 mod logging;
 mod migrations;
 mod models;
 mod notifications;
 mod player;
+mod streaming_server;
 
 // Re-export public items (avoid glob conflicts)
 pub use addon_protocol::{AddonClient, AddonError, Stream, StreamBehaviorHints, Subtitle};
@@ -30,6 +32,7 @@ use serde::Serialize;
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub cache: Arc<Mutex<CacheManager>>,
+    pub streaming_server: Option<Arc<streaming_server::StreamingServer>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -183,6 +186,8 @@ async fn aggregate_catalogs(
 ) -> Result<serde_json::Value, String> {
     // Load enabled addons from the database
     let db = state.inner().db.clone();
+    let media_type_clone = media_type.clone();
+    let catalog_id_clone = catalog_id.clone();
     let addons_res = tokio::task::spawn_blocking(move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         let mut addons = db.get_addons().map_err(|e| e.to_string())?;
@@ -198,8 +203,17 @@ async fn aggregate_catalogs(
             addons = builtin;
         }
 
-        // Filter enabled addons
-        let enabled: Vec<Addon> = addons.into_iter().filter(|a| a.enabled).collect();
+        // Filter enabled addons that have catalogs for the requested media type
+        let enabled: Vec<Addon> = addons
+            .into_iter()
+            .filter(|a| {
+                a.enabled
+                    && a.manifest.catalogs.iter().any(|c| {
+                        c.catalog_type.to_lowercase() == media_type_clone.to_lowercase()
+                            || c.id == catalog_id_clone
+                    })
+            })
+            .collect();
         Ok::<Vec<Addon>, String>(enabled)
     })
     .await;
@@ -390,7 +404,7 @@ async fn get_streams(
     content_id: String,
     media_type: Option<String>,
     state: tauri::State<'_, AppState>,
-) -> Result<Vec<Stream>, String> {
+) -> Result<Vec<crate::models::StreamWithSource>, String> {
     // Load enabled addons (initialize built-ins if needed)
     let db = state.inner().db.clone();
     let addons_res = tokio::task::spawn_blocking(move || {
@@ -427,7 +441,7 @@ async fn get_streams(
     let aggregator = ContentAggregator::with_cache(cache);
     let media_type_effective = media_type.unwrap_or_else(|| "movie".to_string());
     let result = aggregator
-        .query_streams(&addons, &media_type_effective, &content_id)
+        .query_streams_detailed(&addons, &media_type_effective, &content_id)
         .await;
 
     // Record health metrics
@@ -928,11 +942,12 @@ async fn check_new_episodes(
     let db = state.inner().db.clone();
     let user_id = "default_user".to_string();
 
-    // Get library items and last check timestamp
+    // Get library items, addons, and last check timestamp
     let user_id_clone = user_id.clone();
-    let (library_items, last_check) = tokio::task::spawn_blocking(move || {
+    let (library_items, addons, last_check) = tokio::task::spawn_blocking(move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         let items = db.get_library_items().map_err(|e| e.to_string())?;
+        let addons = db.get_addons().map_err(|e| e.to_string())?;
         
         let profile = db.get_user_profile(&user_id_clone).map_err(|e| e.to_string())?;
         let last_check = profile
@@ -940,13 +955,13 @@ async fn check_new_episodes(
             .and_then(|ts| chrono::DateTime::parse_from_rfc3339(&ts).ok())
             .map(|dt| dt.with_timezone(&chrono::Utc));
         
-        Ok::<(Vec<MediaItem>, Option<chrono::DateTime<chrono::Utc>>), String>((items, last_check))
+        Ok::<(Vec<MediaItem>, Vec<Addon>, Option<chrono::DateTime<chrono::Utc>>), String>((items, addons, last_check))
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))??;
 
     // Check for new episodes
-    let new_episodes = notifications::check_new_episodes(library_items, last_check)
+    let new_episodes = notifications::check_new_episodes(library_items, last_check, addons)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -1320,7 +1335,7 @@ async fn clear_expired_cache(state: tauri::State<'_, AppState>) -> Result<usize,
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
-// Data export command
+// Data export/import commands
 #[tauri::command]
 async fn export_user_data(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let db = state.inner().db.clone();
@@ -1358,6 +1373,129 @@ async fn export_user_data(state: tauri::State<'_, AppState>) -> Result<String, S
         };
 
         serde_json::to_string_pretty(&export_data).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn import_user_data(
+    data: UserExportData,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let db = state.inner().db.clone();
+    let user_id = "default_user".to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+
+        // Import user profile preferences (merge, not replace)
+        let mut current_profile = db
+            .get_user_profile(&user_id)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| UserProfile {
+                id: user_id.clone(),
+                username: data.profile.username.clone(),
+                email: data.profile.email.clone(),
+                preferences: data.profile.preferences.clone(),
+                library_items: Vec::new(),
+                watchlist: Vec::new(),
+                favorites: Vec::new(),
+            });
+
+        // Merge preferences (imported data takes precedence)
+        current_profile.preferences = data.profile.preferences.clone();
+        current_profile.username = data.profile.username.clone();
+        current_profile.email = data.profile.email.clone();
+
+        db.save_user_profile(&current_profile)
+            .map_err(|e| e.to_string())?;
+
+        tracing::info!("Imported user profile and preferences");
+
+        // Import library items (merge, avoiding duplicates)
+        let library_count = data.library.len();
+        for item in data.library {
+            if let Err(e) = db.add_to_library(item.clone()) {
+                tracing::warn!("Failed to import library item {}: {}", item.id, e);
+            }
+        }
+        tracing::info!("Imported {} library items", library_count);
+
+        // Import watchlist (merge, avoiding duplicates)
+        for item in &data.watchlist {
+            if let Err(e) = db.add_to_watchlist(&user_id, &item.id) {
+                tracing::debug!("Watchlist item {} may already exist: {}", item.id, e);
+            }
+        }
+        tracing::info!("Imported {} watchlist items", data.watchlist.len());
+
+        // Import favorites (merge, avoiding duplicates)
+        for item in &data.favorites {
+            if let Err(e) = db.add_to_favorites(&user_id, &item.id) {
+                tracing::debug!("Favorite item {} may already exist: {}", item.id, e);
+            }
+        }
+        tracing::info!("Imported {} favorites", data.favorites.len());
+
+        // Import playlists and their items
+        let playlists_count = data.playlists.len();
+        for playlist_with_items in data.playlists {
+            let playlist = playlist_with_items.playlist;
+            
+            // Create playlist (use original ID if possible)
+            if let Err(e) = db.create_playlist(
+                &playlist.id,
+                &playlist.name,
+                playlist.description.as_deref(),
+                &user_id,
+            ) {
+                tracing::warn!(
+                    "Failed to create playlist {}: {} - may already exist",
+                    playlist.name,
+                    e
+                );
+                // Try to update instead
+                let _ = db.update_playlist(
+                    &playlist.id,
+                    &playlist.name,
+                    playlist.description.as_deref(),
+                );
+            }
+
+            // Add items to playlist
+            for item in playlist_with_items.items {
+                // First ensure the media item is in the library
+                let _ = db.add_to_library(item.clone());
+                // Then add to playlist
+                if let Err(e) = db.add_item_to_playlist(&playlist.id, &item.id) {
+                    tracing::debug!(
+                        "Failed to add item {} to playlist {}: {}",
+                        item.id,
+                        playlist.id,
+                        e
+                    );
+                }
+            }
+        }
+        tracing::info!("Imported {} playlists", playlists_count);
+
+        // Import continue watching progress
+        let continue_watching_count = data.continue_watching.len();
+        for item in data.continue_watching {
+            if let Some(progress) = item.progress {
+                if let Err(e) = db.update_watch_progress(&item.id, progress, item.watched) {
+                    tracing::warn!("Failed to import watch progress for {}: {}", item.id, e);
+                }
+            }
+        }
+        tracing::info!(
+            "Imported {} continue watching entries",
+            continue_watching_count
+        );
+
+        tracing::info!("User data import completed successfully");
+        Ok(())
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -1592,13 +1730,46 @@ pub fn run() {
         }
     };
 
+    // Initialize i18n manager as global
+    let locales_dir = dirs::data_local_dir()
+        .map(|dir| dir.join("StreamGo").join("locales"))
+        .unwrap_or_else(|| std::path::PathBuf::from("locales"));
+    
+    if let Err(e) = i18n::I18nManager::init_global(locales_dir) {
+        tracing::error!(error = %e, "Failed to initialize i18n manager");
+        eprintln!("Failed to initialize i18n: {}", e);
+        std::process::exit(1);
+    } else {
+        tracing::info!("i18n manager initialized successfully");
+    }
+
+    // Initialize streaming server (optional - can fail gracefully)
+    let downloads_dir = dirs::download_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("downloads"))
+        .join("StreamGo");
+    
+    let streaming_server = match tokio::runtime::Runtime::new()
+        .expect("Failed to create Tokio runtime")
+        .block_on(streaming_server::StreamingServer::new(downloads_dir, 8765))
+    {
+        Ok(server) => {
+            tracing::info!("Streaming server initialized successfully on port 8765");
+            Some(Arc::new(server))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to initialize streaming server, torrents will not work");
+            None
+        }
+    };
+
     let app_state = AppState {
         db: Arc::new(Mutex::new(database)),
         cache: Arc::new(Mutex::new(cache)),
+        streaming_server,
     };
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        // .plugin(tauri_plugin_updater::Builder::new().build())  // Disabled - no code signing
         .manage(app_state)
         .setup(|_app| {
             // Initialize application data directories
@@ -1664,6 +1835,7 @@ pub fn run() {
             get_available_players,
             launch_external_player,
             export_user_data,
+            import_user_data,
             get_log_directory_path,
             download_subtitle,
             convert_srt_to_vtt,
@@ -1674,7 +1846,11 @@ pub fn run() {
             reset_performance_metrics,
             get_addon_health_summaries,
             get_addon_health,
-            auto_disable_unhealthy_addons
+            auto_disable_unhealthy_addons,
+            i18n::i18n_get_supported_locales,
+            i18n::i18n_set_locale,
+            i18n::i18n_get_current_locale,
+            i18n::i18n_translate
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

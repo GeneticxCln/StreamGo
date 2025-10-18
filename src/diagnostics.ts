@@ -261,11 +261,14 @@ export class DiagnosticsManager {
       ? Math.round((health.successful_requests / health.total_requests) * 100)
       : 0;
 
+    // Display friendly addon name if available, otherwise use addon_id
+    const displayName = health.addon_name || health.addon_id;
+
     return `
       <div class="health-item">
         <div class="health-header">
           <div class="health-title">
-            <span class="addon-name">${escapeHtml(health.addon_id)}</span>
+            <span class="addon-name">${escapeHtml(displayName)}</span>
             <span class="health-badge ${badgeColor}">${statusText}</span>
           </div>
           <div class="health-score">${health.health_score.toFixed(1)}/100</div>

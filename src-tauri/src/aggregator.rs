@@ -411,10 +411,21 @@ impl ContentAggregator {
         );
 
         // Filter and sort enabled addons by priority (higher priority first)
-        // Also filter out addons with empty URLs
+        // Also filter out addons with empty URLs and those without stream resources
         let mut enabled_addons: Vec<_> = addons
             .iter()
-            .filter(|a| a.enabled && !a.url.is_empty())
+            .filter(|a| {
+                let has_stream = a.manifest.resources.contains(&"stream".to_string());
+                if a.enabled && !a.url.is_empty() && !has_stream {
+                    tracing::debug!(
+                        addon_id = %a.id,
+                        addon_name = %a.name,
+                        resources = ?a.manifest.resources,
+                        "Skipping addon without stream resources"
+                    );
+                }
+                a.enabled && !a.url.is_empty() && has_stream
+            })
             .collect();
         enabled_addons.sort_by(|a, b| b.priority.cmp(&a.priority));
 
@@ -516,6 +527,93 @@ impl ContentAggregator {
             streams: all_streams,
             sources,
             total_time_ms: total_time.as_millis(),
+        }
+    }
+
+    /// Query multiple addons for streams and include source metadata per stream
+    pub async fn query_streams_detailed(
+        &self,
+        addons: &[Addon],
+        media_type: &str,
+        media_id: &str,
+    ) -> StreamAggregationResultDetailed {
+        let start = Instant::now();
+
+        // Reuse the same logic as query_streams but attach addon info
+        let mut enabled_addons: Vec<_> = addons
+            .iter()
+            .filter(|a| {
+                let has_stream = a.manifest.resources.contains(&"stream".to_string());
+                if a.enabled && !a.url.is_empty() && !has_stream {
+                    tracing::debug!(
+                        addon_id = %a.id,
+                        addon_name = %a.name,
+                        resources = ?a.manifest.resources,
+                        "Skipping addon without stream resources"
+                    );
+                }
+                a.enabled && !a.url.is_empty() && has_stream
+            })
+            .collect();
+        enabled_addons.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+        if enabled_addons.is_empty() {
+            return StreamAggregationResultDetailed { streams: vec![], sources: vec![], total_time_ms: 0 };
+        }
+
+        let mut tasks = Vec::new();
+        for addon in enabled_addons {
+            let addon_clone = addon.clone();
+            let media_type = media_type.to_string();
+            let media_id = media_id.to_string();
+            let timeout_duration = self.timeout_duration;
+            let cache_clone = self.cache.clone();
+            let task = tokio::spawn(async move {
+                let (streams, health) = Self::query_single_addon_streams(
+                    &addon_clone,
+                    &media_type,
+                    &media_id,
+                    timeout_duration,
+                    &cache_clone,
+                )
+                .await;
+                (addon_clone.id.clone(), addon_clone.name.clone(), streams, health)
+            });
+            tasks.push(task);
+        }
+
+        let mut all_streams: Vec<crate::models::StreamWithSource> = Vec::new();
+        let mut sources = Vec::new();
+        let mut seen_urls = std::collections::HashSet::new();
+
+        for task in tasks {
+            match task.await {
+                Ok((addon_id, addon_name, streams, health)) => {
+                    for s in streams {
+                        let normalized = s.url.trim().to_lowercase();
+                        if seen_urls.insert(normalized) {
+                            all_streams.push(crate::models::StreamWithSource {
+                                url: s.url,
+                                title: s.title,
+                                name: s.name,
+                                description: s.description,
+                                addon_id: addon_id.clone(),
+                                addon_name: addon_name.clone(),
+                            });
+                        }
+                    }
+                    sources.push(health);
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Task join error (detailed)");
+                }
+            }
+        }
+
+        StreamAggregationResultDetailed {
+            streams: all_streams,
+            sources,
+            total_time_ms: start.elapsed().as_millis(),
         }
     }
 
@@ -659,6 +757,13 @@ impl Default for ContentAggregator {
 #[derive(Debug)]
 pub struct StreamAggregationResult {
     pub streams: Vec<crate::addon_protocol::Stream>,
+    pub sources: Vec<SourceHealth>,
+    pub total_time_ms: u128,
+}
+
+#[derive(Debug)]
+pub struct StreamAggregationResultDetailed {
+    pub streams: Vec<crate::models::StreamWithSource>,
     pub sources: Vec<SourceHealth>,
     pub total_time_ms: u128,
 }

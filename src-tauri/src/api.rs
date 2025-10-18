@@ -182,22 +182,66 @@ pub async fn get_streaming_url(content_id: &str) -> Result<String> {
 pub async fn install_addon(addon_url: &str) -> Result<Addon> {
     log::info!("Installing addon from: {}", addon_url);
 
+    // Validate input URL is not empty or just whitespace
+    let trimmed_url = addon_url.trim();
+    if trimmed_url.is_empty() {
+        return Err(anyhow!("Addon URL cannot be empty"));
+    }
+
     // Normalize to base URL (strip trailing /manifest.json if provided)
-    let base = if addon_url.ends_with("/manifest.json") {
-        addon_url.trim_end_matches("/manifest.json").to_string()
-    } else if addon_url.ends_with("manifest.json") {
-        addon_url
+    let base = if trimmed_url.ends_with("/manifest.json") {
+        trimmed_url.trim_end_matches("/manifest.json").to_string()
+    } else if trimmed_url.ends_with("manifest.json") {
+        trimmed_url
             .trim_end_matches("manifest.json")
             .trim_end_matches('/')
             .to_string()
     } else {
-        addon_url.trim_end_matches('/').to_string()
+        trimmed_url.trim_end_matches('/').to_string()
     };
 
     // Validate base URL format and scheme
     let parsed_url = url::Url::parse(&base).map_err(|e| anyhow!("Invalid addon URL: {}", e))?;
+    
+    // Only allow http and https
     if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
         return Err(anyhow!("Addon URL must use http or https protocol"));
+    }
+
+    // Prevent SSRF attacks by blocking private/local IP ranges
+    if let Some(host) = parsed_url.host_str() {
+        // Block localhost, 127.0.0.1, etc.
+        if host == "localhost" 
+            || host == "127.0.0.1" 
+            || host == "0.0.0.0"
+            || host.starts_with("192.168.")
+            || host.starts_with("10.")
+            || host.starts_with("172.16.")
+            || host.starts_with("172.17.")
+            || host.starts_with("172.18.")
+            || host.starts_with("172.19.")
+            || host.starts_with("172.20.")
+            || host.starts_with("172.21.")
+            || host.starts_with("172.22.")
+            || host.starts_with("172.23.")
+            || host.starts_with("172.24.")
+            || host.starts_with("172.25.")
+            || host.starts_with("172.26.")
+            || host.starts_with("172.27.")
+            || host.starts_with("172.28.")
+            || host.starts_with("172.29.")
+            || host.starts_with("172.30.")
+            || host.starts_with("172.31.")
+            || host == "[::1]"
+            || host.starts_with("169.254.") // link-local
+        {
+            return Err(anyhow!("Addon URL points to a private or local network address, which is not allowed for security reasons"));
+        }
+    }
+
+    // Validate URL length (prevent extremely long URLs)
+    if base.len() > 2048 {
+        return Err(anyhow!("Addon URL exceeds maximum length of 2048 characters"));
     }
 
     // Use protocol client for strict validation and size limits
@@ -290,7 +334,7 @@ pub async fn get_builtin_addons() -> Result<Vec<Addon>> {
     // Real, working Stremio community addon URLs
     let addon_urls = vec![
         "https://v3-cinemeta.strem.io/manifest.json", // Official TMDB metadata
-        "https://opensubtitles.strem.io/manifest.json", // OpenSubtitles
+        // "https://opensubtitles.strem.io/manifest.json", // Requires user auth/config
         "https://watchhub.strem.io/manifest.json",    // WatchHub aggregator
     ];
 

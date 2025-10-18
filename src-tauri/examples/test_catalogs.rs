@@ -1,6 +1,6 @@
-use app_lib::aggregator::ContentAggregator;
+use app_lib::ContentAggregator;
 use app_lib::api;
-use app_lib::models::Addon;
+use app_lib::Addon;
 use std::collections::HashMap;
 
 #[tokio::main]

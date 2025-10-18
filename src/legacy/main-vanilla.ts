@@ -64,12 +64,13 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import '../ui-utils';
 import '../styles.css';
 import { StreamGoApp } from '../app';
-import { createPlayer } from '../player';
+import { playerFactory } from '../player-factory';
+import type { VideoPlayer } from '../player';
 import { ExternalPlayerManager } from '../external-player';
 import { diagnosticsManager } from '../diagnostics';
 import { PlaylistManager } from '../playlists';
 import { AddonStore } from '../addon-store';
-import { initOnboarding } from '../onboarding';
+// import { initOnboarding } from '../onboarding'; // DISABLED
 import { ContextMenuManager } from '../context-menu';
 
 async function checkForUpdates() {
@@ -125,7 +126,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // If minimal page without full UI, skip heavy init
   const hasPlayerUI = !!document.getElementById('video-player') && !!document.getElementById('video-player-container');
   if (!hasPlayerUI) {
-    try { await checkForUpdates(); } catch {}
+    try { await checkForUpdates(); } catch (error) {
+      console.debug('Update check skipped:', error);
+    }
     return;
   }
 
@@ -137,29 +140,43 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize external player manager (global scope)
   const externalPlayerManager = new ExternalPlayerManager();
   
-  // Initialize video player
+  // Initialize video player (lazy-loaded)
   const playerContainer = document.getElementById('video-player-container') as HTMLElement;
   const video = document.getElementById('video-player') as HTMLVideoElement;
   
   if (playerContainer && video) {
-    const player = createPlayer({
-      container: playerContainer,
-      video: video,
-      onClose: () => {
-        console.log('Player closed');
+    // Lazy-load the player when needed
+    let player: VideoPlayer | null = null;
+    
+    const initPlayer = async () => {
+      if (!player) {
+        console.log('🎬 Initializing video player...');
+        player = await playerFactory.createPlayer({
+          container: playerContainer,
+          video: video,
+          onClose: () => {
+            console.log('Player closed');
+          }
+        });
+        
+        // Make player globally available
+        (window as any).player = player;
+        
+        // Setup PiP button
+        const pipBtn = document.getElementById('pip-btn');
+        if (pipBtn) {
+          pipBtn.addEventListener('click', () => {
+            player?.togglePictureInPicture();
+          });
+        }
+        
+        console.log('✅ Video player ready');
       }
-    });
+      return player;
+    };
     
-    // Make player globally available
-    (window as any).player = player;
-    
-    // Setup PiP button
-    const pipBtn = document.getElementById('pip-btn');
-    if (pipBtn) {
-      pipBtn.addEventListener('click', () => {
-        player.togglePictureInPicture();
-      });
-    }
+    // Store the init function for lazy loading
+    (window as any).initPlayer = initPlayer;
     
     // Initialize external player manager
     await externalPlayerManager.init();
@@ -221,17 +238,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   const addonStore = new AddonStore();
   (window as any).addonStore = addonStore;
   
-  // Initialize onboarding (will show on first launch)
-  const onboarding = initOnboarding();
-  (window as any).onboarding = onboarding;
+  // Initialize onboarding DISABLED
+  // const onboarding = initOnboarding();
+  // (window as any).onboarding = onboarding;
   
   console.log('✅ All managers initialized:', {
     app: !!(window as any).app,
     externalPlayerManager: !!(window as any).externalPlayerManager,
     diagnosticsManager: !!(window as any).diagnosticsManager,
     playlistManager: !!window.playlistManager,
-    addonStore: !!(window as any).addonStore,
-    onboarding: !!onboarding
+    addonStore: !!(window as any).addonStore
   });
   
   // Listen for media click events from Svelte components

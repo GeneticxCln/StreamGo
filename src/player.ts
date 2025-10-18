@@ -1,8 +1,8 @@
 // Video Player Module with HLS support
-// HLS.js is lazy-loaded only when needed to reduce initial bundle size
+// All heavy dependencies are lazy-loaded only when needed to reduce initial bundle size
 type HlsType = typeof import('hls.js').default;
-import { DashPlayer } from './dash-player';
-import { TorrentPlayer, TorrentStats } from './torrent-player';
+type DashPlayerType = typeof import('./dash-player').DashPlayer;
+type TorrentPlayerType = typeof import('./torrent-player').TorrentPlayer;
 import { detectStreamFormat } from './stream-format-detector';
 import { convertSRTtoVTT, adjustTimestamps } from './subtitle-parser';
 import { showToast } from './ui-utils';
@@ -26,12 +26,14 @@ export class VideoPlayer {
     private container: HTMLElement;
     private video: HTMLVideoElement;
     private hls: InstanceType<HlsType> | null = null;
-    private dashPlayer: DashPlayer | null = null;
-    private torrentPlayer: TorrentPlayer | null = null;
+    private dashPlayer: InstanceType<DashPlayerType> | null = null;
+    private torrentPlayer: InstanceType<TorrentPlayerType> | null = null;
     private onCloseCallback?: () => void;
     private playlistContext: PlaylistContext | null = null;
     private isPipActive: boolean = false;
     private hlsModule: HlsType | null = null;
+    private DashPlayerClass: DashPlayerType | null = null;
+    private TorrentPlayerClass: TorrentPlayerType | null = null;
     private localSubtitleBlobs: string[] = [];
     private subtitleOffset: number = 0; // in seconds
     private originalSubtitleContent: Map<string, string> = new Map(); // Map<track.src, originalVttContent>
@@ -121,10 +123,13 @@ export class VideoPlayer {
      * Detects stream format and loads the appropriate player.
      */
     private async loadStream(url: string) {
+        console.log('🎬 Loading stream URL:', url);
+        
         // First, clean up any existing HLS or DASH instances and subtitles
         this.cleanupPreviousStream();
 
         const format = detectStreamFormat(url);
+        console.log('🎬 Detected format:', format);
 
         switch (format) {
             case 'torrent':
@@ -134,11 +139,7 @@ export class VideoPlayer {
 
             case 'dash':
                 console.log('DASH stream detected. Initializing dash.js...');
-                this.dashPlayer = new DashPlayer(this.video);
-                this.dashPlayer.onError((event) => this.handleDashError(event));
-                this.dashPlayer.load(url);
-                // The quality selector for DASH is set up after the manifest is loaded
-                this.video.addEventListener('loadedmetadata', () => this.setupDashQualitySelector(), { once: true });
+                await this.loadDashStream(url);
                 break;
 
             case 'hls':
@@ -210,6 +211,24 @@ export class VideoPlayer {
     }
 
     /**
+     * Load DASH stream using dash.js (lazy-loaded)
+     */
+    private async loadDashStream(url: string): Promise<void> {
+        // Lazy load DashPlayer only when needed
+        if (!this.DashPlayerClass) {
+            console.log('Loading DASH player module...');
+            const dashModule = await import('./dash-player');
+            this.DashPlayerClass = dashModule.DashPlayer;
+        }
+
+        this.dashPlayer = new this.DashPlayerClass(this.video);
+        this.dashPlayer.onError((event) => this.handleDashError(event));
+        this.dashPlayer.load(url);
+        // The quality selector for DASH is set up after the manifest is loaded
+        this.video.addEventListener('loadedmetadata', () => this.setupDashQualitySelector(), { once: true });
+    }
+
+    /**
      * Load regular video file (MP4, WebM, etc.)
      */
     private loadRegularVideo(url: string): void {
@@ -224,13 +243,20 @@ export class VideoPlayer {
     }
 
     /**
-     * Load torrent/magnet stream using WebTorrent
+     * Load torrent/magnet stream using WebTorrent (lazy-loaded)
      */
-    private loadTorrentStream(magnetOrTorrent: string): void {
-        this.torrentPlayer = new TorrentPlayer(this.video);
+    private async loadTorrentStream(magnetOrTorrent: string): Promise<void> {
+        // Lazy load TorrentPlayer only when needed
+        if (!this.TorrentPlayerClass) {
+            console.log('Loading WebTorrent player module...');
+            const torrentModule = await import('./torrent-player');
+            this.TorrentPlayerClass = torrentModule.TorrentPlayer;
+        }
+
+        this.torrentPlayer = new this.TorrentPlayerClass(this.video);
         this.setupTorrentStatsUI();
 
-        this.torrentPlayer.load(magnetOrTorrent, (stats: TorrentStats) => {
+        this.torrentPlayer.load(magnetOrTorrent, (stats: any) => {
             this.updateTorrentStatsUI(stats);
         });
     }
@@ -1156,16 +1182,16 @@ export class VideoPlayer {
     /**
      * Update torrent stats UI
      */
-    private updateTorrentStatsUI(stats: TorrentStats): void {
-        if (!this.torrentStatsElement) return;
+    private updateTorrentStatsUI(stats: any): void {
+        if (!this.torrentStatsElement || !this.TorrentPlayerClass) return;
 
         this.torrentStatsElement.innerHTML = `
             <div style="margin-bottom: 8px; font-weight: bold; color: #4CAF50;">📊 Torrent Stats</div>
-            <div>⬇️ Download: ${TorrentPlayer.formatSpeed(stats.downloadSpeed)}</div>
-            <div>⬆️ Upload: ${TorrentPlayer.formatSpeed(stats.uploadSpeed)}</div>
+            <div>⬇️ Download: ${this.TorrentPlayerClass.formatSpeed(stats.downloadSpeed)}</div>
+            <div>⬆️ Upload: ${this.TorrentPlayerClass.formatSpeed(stats.uploadSpeed)}</div>
             <div>👥 Peers: ${stats.numPeers}</div>
-            <div>📥 Downloaded: ${TorrentPlayer.formatBytes(stats.downloaded)}</div>
-            <div>📤 Uploaded: ${TorrentPlayer.formatBytes(stats.uploaded)}</div>
+            <div>📥 Downloaded: ${this.TorrentPlayerClass.formatBytes(stats.downloaded)}</div>
+            <div>📤 Uploaded: ${this.TorrentPlayerClass.formatBytes(stats.uploaded)}</div>
             <div>⏳ Progress: ${(stats.progress * 100).toFixed(1)}%</div>
         `;
     }

@@ -943,23 +943,25 @@ impl Database {
         addon_id: &str,
     ) -> Result<Option<AddonHealthSummary>, anyhow::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT addon_id, last_check, success_rate, avg_response_time_ms, 
-                    total_requests, successful_requests, failed_requests, last_error, health_score
-             FROM addon_health_summary
-             WHERE addon_id = ?1",
+            "SELECT h.addon_id, a.name, h.last_check, h.success_rate, h.avg_response_time_ms, 
+                    h.total_requests, h.successful_requests, h.failed_requests, h.last_error, h.health_score
+             FROM addon_health_summary h
+             LEFT JOIN addons a ON h.addon_id = a.id
+             WHERE h.addon_id = ?1",
         )?;
 
         let result = stmt.query_row(params![addon_id], |row| {
             Ok(AddonHealthSummary {
                 addon_id: row.get(0)?,
-                last_check: row.get(1)?,
-                success_rate: row.get(2)?,
-                avg_response_time_ms: row.get(3)?,
-                total_requests: row.get(4)?,
-                successful_requests: row.get(5)?,
-                failed_requests: row.get(6)?,
-                last_error: row.get(7)?,
-                health_score: row.get(8)?,
+                addon_name: row.get(1)?,
+                last_check: row.get(2)?,
+                success_rate: row.get(3)?,
+                avg_response_time_ms: row.get(4)?,
+                total_requests: row.get(5)?,
+                successful_requests: row.get(6)?,
+                failed_requests: row.get(7)?,
+                last_error: row.get(8)?,
+                health_score: row.get(9)?,
             })
         });
 
@@ -973,23 +975,25 @@ impl Database {
     /// Get health summaries for all addons
     pub fn get_all_addon_health_summaries(&self) -> Result<Vec<AddonHealthSummary>, anyhow::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT addon_id, last_check, success_rate, avg_response_time_ms, 
-                    total_requests, successful_requests, failed_requests, last_error, health_score
-             FROM addon_health_summary
-             ORDER BY health_score DESC",
+            "SELECT h.addon_id, a.name, h.last_check, h.success_rate, h.avg_response_time_ms, 
+                    h.total_requests, h.successful_requests, h.failed_requests, h.last_error, h.health_score
+             FROM addon_health_summary h
+             LEFT JOIN addons a ON h.addon_id = a.id
+             ORDER BY h.health_score DESC",
         )?;
 
         let summaries = stmt.query_map([], |row| {
             Ok(AddonHealthSummary {
                 addon_id: row.get(0)?,
-                last_check: row.get(1)?,
-                success_rate: row.get(2)?,
-                avg_response_time_ms: row.get(3)?,
-                total_requests: row.get(4)?,
-                successful_requests: row.get(5)?,
-                failed_requests: row.get(6)?,
-                last_error: row.get(7)?,
-                health_score: row.get(8)?,
+                addon_name: row.get(1)?,
+                last_check: row.get(2)?,
+                success_rate: row.get(3)?,
+                avg_response_time_ms: row.get(4)?,
+                total_requests: row.get(5)?,
+                successful_requests: row.get(6)?,
+                failed_requests: row.get(7)?,
+                last_error: row.get(8)?,
+                health_score: row.get(9)?,
             })
         })?;
 

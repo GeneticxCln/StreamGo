@@ -4,7 +4,7 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     println!("Opening database...");
-    let db = app_lib::database::Database::new()?;
+    let db = app_lib::Database::new()?;
     println!("Database opened successfully");
     
     println!("\nGetting addons...");

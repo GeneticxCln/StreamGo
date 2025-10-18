@@ -108,6 +108,11 @@ export interface Stream {
   description?: string;
 }
 
+export interface StreamWithSource extends Stream {
+  addon_id: string;
+  addon_name: string;
+}
+
 export interface Subtitle {
   id: string;
   url: string;
@@ -242,6 +247,7 @@ export interface SearchFilters {
 
 export interface AddonHealthSummary {
   addon_id: string;
+  addon_name?: string;
   last_check: number;
   success_rate: number;
   avg_response_time_ms: number;
@@ -298,7 +304,7 @@ export interface TauriCommands {
   // Media & Catalogs
   get_media_details: { args: { content_id: string; media_type: MediaType }; return: MediaItem };
   get_stream_url: { args: { content_id: string; media_type?: string }; return: string };
-  get_streams: { args: { content_id: string; media_type?: string }; return: Stream[] };
+get_streams: { args: { content_id: string; media_type?: string }; return: StreamWithSource[] };
   get_subtitles: { args: { content_id: string; media_type?: string }; return: Subtitle[] };
   get_addon_meta: { args: { content_id: string; media_type?: string }; return: MetaItem };
   list_catalogs: { args: { media_type: string }; return: CatalogInfo[] };

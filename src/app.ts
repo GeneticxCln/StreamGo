@@ -1,5 +1,5 @@
 // StreamGo App - Main Application Logic
-import type { MediaItem, UserPreferences } from './types/tauri';
+import type { MediaItem, UserPreferences } from './types/tauri.d';
 import { invoke } from './utils';
 import { escapeHtml } from './utils/security';
 import { Toast, Modal } from './ui-utils';
@@ -204,7 +204,7 @@ export class StreamGoApp {
 
     setupKeyboardShortcuts() {
         // Global keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
+        document.addEventListener('keydown', async (e) => {
             const target = e.target as HTMLElement;
             const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
             
@@ -246,10 +246,11 @@ export class StreamGoApp {
                 // Picture-in-Picture - P
                 if ((e.key === 'p' || e.key === 'P') && !isInput) {
                     e.preventDefault();
-                    const player = (window as any).player;
-                    if (player && player.togglePictureInPicture) {
-                        player.togglePictureInPicture();
-                    }
+                    await this.ensurePlayer().then(player => {
+                        if (player && player.togglePictureInPicture) {
+                            player.togglePictureInPicture();
+                        }
+                    }).catch(err => console.error('Failed to init player:', err));
                     return;
                 }
                 
@@ -722,6 +723,7 @@ export class StreamGoApp {
         filtersPanel.style.display = hasAnyFilter ? 'block' : 'none';
     }
 
+
     private async loadDiscoverItems(reset: boolean) {
         const grid = document.getElementById('discover-grid');
         const loading = document.getElementById('discover-loading');
@@ -1109,29 +1111,9 @@ export class StreamGoApp {
                 console.warn('Could not fetch addon health data:', err);
             }
 
-            // Auto-disable unhealthy addons (health_score < 30)
-            try {
-                const toDisable = addons.filter((a: any) => {
-                    const h = healthData.get(a.id);
-                    return a.enabled && h && typeof h.health_score === 'number' && h.health_score < 30;
-                });
-                if (toDisable.length > 0) {
-                    for (const a of toDisable) {
-                        try {
-                            await invoke('disable_addon', { addon_id: a.id });
-                            const h = healthData.get(a.id);
-                            const score = h && h.health_score !== undefined ? Math.round(h.health_score) : 'low';
-                            Toast.info(`Disabled add-on "${escapeHtml(a.name)}" due to poor health (${score})`);
-                        } catch (e) {
-                            console.warn('Failed to auto-disable addon', a.id, e);
-                        }
-                    }
-                    await this.loadAddons();
-                    return;
-                }
-            } catch (e) {
-                console.warn('Auto-disable check failed:', e);
-            }
+            // Note: We no longer auto-disable addons based on health.
+            // We'll simply surface health info and let users decide.
+            // This avoids accidentally disabling streaming sources.
 
             addonsEl.innerHTML = addons.map(addon => {
                 const health = healthData.get(addon.id);
@@ -2118,8 +2100,8 @@ export class StreamGoApp {
                 }
             }
             
-            // Use the global player instance
-            const player = (window as any).player;
+            // Ensure player is loaded, then play
+            const player = await this.ensurePlayer();
             if (player) {
                 player.loadVideo(streamUrl, this.currentMedia?.title || 'Video', startTime);
             } else {
@@ -2200,8 +2182,8 @@ export class StreamGoApp {
                 }
             }
 
-            // Play with playlist context
-            const player = (window as any).player;
+            // Ensure player is loaded, then play with playlist context
+            const player = await this.ensurePlayer();
             if (player) {
                 player.setPlaylistContext(playlistContext);
                 player.loadVideo(streamUrl, media.title, startTime);
@@ -2230,6 +2212,18 @@ export class StreamGoApp {
         if (this.currentMedia) {
             this.updateWatchProgress();
         }
+    }
+    
+    /**
+     * Ensure player is initialized (lazy loading)
+     */
+    private async ensurePlayer(): Promise<any> {
+        const initPlayer = (window as any).initPlayer;
+        if (initPlayer && typeof initPlayer === 'function') {
+            return await initPlayer();
+        }
+        // Fallback to existing player if already initialized
+        return (window as any).player || null;
     }
 
     async updateWatchProgress() {
@@ -2469,25 +2463,102 @@ export class StreamGoApp {
                 listEl.innerHTML = `<div class="empty-message">No streams available from enabled add-ons.</div>`;
                 return;
             }
+
+            // Group by addon
+            const byAddon: Record<string, any[]> = {};
+            this.currentStreams.forEach((s: any) => {
+                const key = s.addon_name || s.addon_id || 'Unknown';
+                (byAddon[key] ||= []).push(s);
+            });
+            const addonNames = Object.keys(byAddon);
+
+            const qualityOf = (s: any): string => {
+                const src = `${s.name || ''} ${s.title || ''} ${s.description || ''}`.toLowerCase();
+                if (src.includes('2160') || src.includes('4k')) return '4K';
+                if (src.includes('1440')) return '1440p';
+                if (src.includes('1080')) return '1080p';
+                if (src.includes('720')) return '720p';
+                if (src.includes('480')) return '480p';
+                return 'SD';
+            };
+
+            const badgeColor = (q: string) => {
+                const colors: Record<string, string> = {
+                    '4K': '#e74c3c',
+                    '1440p': '#9b59b6',
+                    '1080p': '#27ae60',
+                    '720p': '#3498db',
+                    '480p': '#f39c12',
+                    'SD': '#95a5a6'
+                };
+                return colors[q] || '#95a5a6';
+            };
+
+            const typeIcon = (s: any): string => {
+                const url = String(s.url || '').toLowerCase();
+                if (url.startsWith('magnet:') || url.includes('.torrent')) return '🧲';
+                if (url.includes('.m3u8')) return '📡';
+                if (url.includes('.mpd')) return '📺';
+                return '▶️';
+            };
+
+            const groupsHtml = addonNames.map(an => {
+                const items = byAddon[an]
+                    .map((s: any, i: number) => {
+                        const q = qualityOf(s);
+                        const label = escapeHtml(String(s.name || s.title || `Stream ${i + 1}`));
+                        const desc = escapeHtml(String(s.description || ''));
+                        const icon = typeIcon(s);
+                        return `
+                            <div class="playlist-stream-item" data-url="${escapeHtml(String(s.url))}">
+                                <div class="stream-icon">${icon}</div>
+                                <div class="stream-quality-badge" style="background: ${badgeColor(q)}">${q}</div>
+                                <div class="stream-info">
+                                    <div class="stream-title">${label}</div>
+                                    ${desc ? `<div class="stream-description">${desc}</div>` : ''}
+                                </div>
+                            </div>`;
+                    })
+                    .join('');
+                return `
+                    <div class="playlist-server-group">
+                        <div class="playlist-server-header">
+                            <div class="server-name">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="opacity: 0.6; margin-right: 8px;">
+                                    <path d="M20 13H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zM7 19c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM20 3H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1zM7 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
+                                </svg>
+                                ${escapeHtml(an)}
+                            </div>
+                            <div class="server-count">${byAddon[an].length} stream${byAddon[an].length !== 1 ? 's' : ''}</div>
+                        </div>
+                        <div class="playlist-server-streams">${items}</div>
+                    </div>`;
+            }).join('');
+
             listEl.innerHTML = `
-                <div style="display:flex; gap:8px; flex-wrap: wrap;">
-                    ${this.currentStreams.map((s: any, i: number) => `
-                        <button class="btn btn-secondary stream-choice" data-url="${escapeHtml(String(s.url))}" title="${escapeHtml(String(s.description || s.title || s.name || ''))}">
-                            ${escapeHtml(String(s.name || s.title || ('Stream ' + (i + 1))))}
-                        </button>
-                    `).join('')}
-                </div>
-                <small class="setting-description">Select a stream to prefer it; Play Now will use your selection.</small>
-            `;
-            document.querySelectorAll('.stream-choice').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const url = (btn as HTMLElement).getAttribute('data-url') || '';
-                    if (url) {
-                        this.selectedStreamUrl = url;
-                        try { window?.Toast?.success('Stream selected'); } catch (_) {}
-                        document.querySelectorAll('.stream-choice').forEach(b => b.classList.remove('btn-primary'));
-                        (btn as HTMLElement).classList.add('btn-primary');
-                    }
+                <div class="streams-playlist-container">
+                    <div class="playlist-header">
+                        <h4 style="margin: 0; font-size: 14px; font-weight: 600; opacity: 0.8;">Available Sources</h4>
+                        <span style="font-size: 12px; opacity: 0.6;">${this.currentStreams.length} total</span>
+                    </div>
+                    <div class="playlist-servers">${groupsHtml}</div>
+                    <div class="playlist-footer">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="opacity: 0.5;">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                        </svg>
+                        <span style="font-size: 12px; opacity: 0.7; margin-left: 6px;">Click any stream to select it, then press Play Now</span>
+                    </div>
+                </div>`;
+
+            // Click handling
+            listEl.querySelectorAll('.playlist-stream-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    const url = (el as HTMLElement).getAttribute('data-url') || '';
+                    if (!url) return;
+                    this.selectedStreamUrl = url;
+                    try { window?.Toast?.success('Stream selected'); } catch (_) {}
+                    listEl.querySelectorAll('.playlist-stream-item').forEach(r => r.classList.remove('selected'));
+                    (el as HTMLElement).classList.add('selected');
                 });
             });
         } catch (err) {

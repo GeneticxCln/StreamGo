@@ -1,7 +1,7 @@
 // Context Menu Manager for Media Cards
 import { invoke } from './utils';
 import { Toast, Modal } from './ui-utils';
-import type { MediaItem, Playlist } from './types/tauri';
+import type { Playlist } from './types/tauri';
 
 export class ContextMenuManager {
     private menu: HTMLElement | null = null;

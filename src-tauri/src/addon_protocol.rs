@@ -757,7 +757,7 @@ impl AddonClient {
 
         if streams.streams.is_empty() {
             return Err(AddonError::ValidationError(
-                "No valid streams found (all URLs failed validation)".to_string(),
+                "No valid streams available after URL validation".to_string(),
             ));
         }
 
@@ -1124,9 +1124,14 @@ impl AddonClient {
 
     /// Validate stream URL (security check)
     fn validate_stream_url(url_str: &str) -> bool {
+        // Accept magnet links as valid (handled via WebTorrent in the client)
+        if url_str.starts_with("magnet:") {
+            return true;
+        }
+
         match Url::parse(url_str) {
             Ok(url) => {
-                // Only allow http and https protocols
+                // Allow http/https protocols (and .torrent files served over http/https)
                 let scheme = url.scheme();
                 if scheme != "http" && scheme != "https" {
                     tracing::warn!(url = %url_str, "Rejected stream URL with invalid protocol: {}", scheme);
@@ -1142,6 +1147,7 @@ impl AddonClient {
                 true
             }
             Err(e) => {
+                // If not a valid URL and not magnet, reject
                 tracing::warn!(url = %url_str, error = %e, "Rejected malformed stream URL");
                 false
             }

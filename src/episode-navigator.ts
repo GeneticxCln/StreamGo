@@ -28,8 +28,8 @@ export class EpisodeNavigator {
         try {
             // Fetch series metadata from addons
             const meta: MetaItem = await invoke('get_addon_meta', {
-                content_id: seriesId,
-                media_type: 'series'
+                contentId: seriesId,
+                mediaType: 'series'
             });
 
             if (!meta.videos || meta.videos.length === 0) {

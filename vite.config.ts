@@ -43,19 +43,107 @@ export default defineConfig({
     outDir: '../dist',
     // Clear output directory before build
     emptyOutDir: true,
+    // Optimize dependencies
+    commonjsOptions: {
+      include: [/node_modules/],
+      transformMixedEsModules: true,
+    },
+    // Better tree-shaking
+    modulePreload: {
+      polyfill: false, // Tauri apps don't need this
+    },
     // Manual chunk splitting for better caching and smaller initial bundles
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Vendor chunk for heavy dependencies
-          'vendor-hls': ['hls.js'],
-          // Tauri API as separate chunk
-          'vendor-tauri': ['@tauri-apps/api'],
+        manualChunks(id) {
+          // Vendor chunks - split heavy dependencies
+          if (id.includes('node_modules')) {
+            // Tauri API - frequently used, keep separate
+            if (id.includes('@tauri-apps')) {
+              return 'vendor-tauri';
+            }
+            // HLS.js - lazy loaded, separate chunk
+            if (id.includes('hls.js')) {
+              return 'vendor-hls';
+            }
+            // Dash.js - lazy loaded, separate chunk
+            if (id.includes('dashjs')) {
+              return 'vendor-dash';
+            }
+            // WebTorrent and dependencies - lazy loaded when needed
+            if (id.includes('webtorrent') || 
+                id.includes('bittorrent-') || 
+                id.includes('torrent-') ||
+                id.includes('parse-torrent')) {
+              return 'vendor-webtorrent';
+            }
+            // Svelte - framework code
+            if (id.includes('svelte')) {
+              return 'vendor-svelte';
+            }
+            // Networking libraries (used by webtorrent)
+            if (id.includes('simple-peer') || 
+                id.includes('socket.io') ||
+                id.includes('engine.io') ||
+                id.includes('ws')) {
+              return 'vendor-networking';
+            }
+            // Crypto and compression libraries
+            if (id.includes('crypto-') || 
+                id.includes('cipher-') ||
+                id.includes('hash-') ||
+                id.includes('pako') ||
+                id.includes('bencode')) {
+              return 'vendor-crypto';
+            }
+            // Stream and buffer utilities
+            if (id.includes('buffer') || 
+                id.includes('stream-') ||
+                id.includes('readable-stream') ||
+                id.includes('process') || 
+                id.includes('events')) {
+              return 'vendor-core';
+            }
+            // All other node_modules into common vendor chunk
+            return 'vendor';
+          }
+          
+          // Split source files into logical chunks for better code-splitting
+          // Player modules (lazy-loaded)
+          if (id.includes('/src/player.ts') || 
+              id.includes('/src/dash-player.ts') ||
+              id.includes('/src/torrent-player.ts')) {
+            return 'players';
+          }
+          
+          // Addon system (lazy-loaded)
+          if (id.includes('/src/addon-') || 
+              id.includes('/src/aggregator')) {
+            return 'addons';
+          }
+          
+          // Diagnostics and health monitoring (lazy-loaded)
+          if (id.includes('/src/diagnostics') || 
+              id.includes('/src/health-api')) {
+            return 'diagnostics';
+          }
+          
+          // Component chunks (lazy-loaded via dynamic imports)
+          if (id.includes('/src/components/settings/')) {
+            return 'settings';
+          }
+          if (id.includes('/src/components/library/')) {
+            return 'library';
+          }
+          if (id.includes('/src/components/')) {
+            return 'components';
+          }
         },
       },
     },
-    // Increase chunk size warning limit (we're splitting intentionally)
-    chunkSizeWarningLimit: 600,
+    // Increase chunk size warning limit for media player libraries
+    // HLS.js and Dash.js are large but necessary for streaming support
+    chunkSizeWarningLimit: 1000,
   },
   resolve: {
     alias: {

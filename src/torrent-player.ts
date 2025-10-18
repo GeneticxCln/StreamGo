@@ -3,11 +3,7 @@
  * Handles magnet links and .torrent files
  */
 
-// Dynamically load WebTorrent browser bundle to avoid bundling Node-only modules
-// Vite will emit a URL for the UMD bundle; we inject it at runtime.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import webtorrentUrl from 'webtorrent/dist/webtorrent.min.js?url';
+import WebTorrent from 'webtorrent'; // Ensure webtorrent is installed via npm
 
 declare global {
   interface Window {
@@ -15,21 +11,7 @@ declare global {
   }
 }
 
-type WTFile = {
-  name: string;
-  length: number;
-  renderTo: (videoEl: HTMLVideoElement, opts?: { autoplay?: boolean; controls?: boolean }) => void;
-};
 
-type WTTorrent = {
-  files: WTFile[];
-  downloadSpeed: number;
-  uploadSpeed: number;
-  progress: number;
-  numPeers: number;
-  downloaded: number;
-  uploaded: number;
-};
 
 export interface TorrentStats {
   downloadSpeed: number;
@@ -41,8 +23,8 @@ export interface TorrentStats {
 }
 
 export class TorrentPlayer {
-  private client: any;
-  private currentTorrent: WTTorrent | null = null;
+  private client: WebTorrent.Instance | null = null;
+  private currentTorrent: WebTorrent.Torrent | null = null;
   private video: HTMLVideoElement;
   private statsInterval: number | null = null;
   private onStatsUpdate?: (stats: TorrentStats) => void;
@@ -59,20 +41,20 @@ export class TorrentPlayer {
 
     console.log('Loading torrent:', magnetOrTorrentUrl);
 
-    await this.ensureWebTorrent();
-
-    this.client = new (window.WebTorrent as any)({
-      tracker: {
-        rtcConfig: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' },
-          ],
+    if (!this.client) {
+      this.client = new WebTorrent({
+        tracker: {
+          rtcConfig: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:global.stun.twilio.com:3478' },
+            ],
+          },
         },
-      },
-    });
+      });
+    }
 
-    this.client.add(magnetOrTorrentUrl, (torrent: WTTorrent) => {
+    this.client.add(magnetOrTorrentUrl, (torrent: WebTorrent.Torrent) => {
       this.currentTorrent = torrent;
       console.log('Torrent added');
 
@@ -105,7 +87,7 @@ export class TorrentPlayer {
   /**
    * Find the largest video file in the torrent
    */
-  private findLargestVideoFile(files: WTFile[]): WTFile | null {
+  private findLargestVideoFile(files: WebTorrent.TorrentFile[]): WebTorrent.TorrentFile | null {
     const videoExtensions = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.m4v', '.flv'];
 
     const videoFiles = files.filter((file) =>
@@ -209,30 +191,14 @@ export class TorrentPlayer {
 
     this.stopStatsCollection();
 
-    // currentTorrent in browser API does not have destroy; client.destroy() suffices
-    this.currentTorrent = null;
+    if (this.currentTorrent) {
+      this.currentTorrent.destroy();
+      this.currentTorrent = null;
+    }
 
     if (this.client) {
       this.client.destroy();
+      this.client = null;
     }
-  }
-
-  private async ensureWebTorrent(): Promise<void> {
-    if (window.WebTorrent) return;
-    await this.injectScript(webtorrentUrl as string);
-    if (!window.WebTorrent) {
-      throw new Error('Failed to load WebTorrent browser bundle');
-    }
-  }
-
-  private injectScript(src: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-      document.head.appendChild(s);
-    });
   }
 }

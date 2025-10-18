@@ -72,21 +72,8 @@ const CURATED_ADDONS: StoreAddon[] = [
         types: ['movie', 'series'],
         healthScore: 92,
     },
-    {
-        id: 'com.stremio.opensubtitles',
-        name: 'OpenSubtitles',
-        version: '4.0.0',
-        description: 'Subtitles in multiple languages from OpenSubtitles.org',
-        url: 'https://opensubtitles.strem.io/manifest.json',
-        author: 'Stremio',
-        category: ['subtitles'],
-        rating: 4.6,
-        downloads: 40000,
-        verified: true,
-        featured: false,
-        types: ['movie', 'series'],
-        healthScore: 95,
-    },
+    // OpenSubtitles removed - requires user authentication/configuration
+    // Users need to visit https://opensubtitles.strem.io/ to get personalized URL
 ];
 
 export class AddonStore {

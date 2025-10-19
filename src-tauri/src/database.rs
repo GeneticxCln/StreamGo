@@ -1117,16 +1117,130 @@ impl Database {
     }
 
     pub fn get_scanned_directories(&self) -> Result<Vec<(String, String, bool)>, anyhow::Error> {
-    let mut stmt = self.conn.prepare(
-    "SELECT path, last_scan, enabled FROM scanned_directories ORDER BY path ASC"
-    )?;
-    
-    let dirs = stmt.query_map([], |row| {
-    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    })?
-    .collect::<Result<Vec<_>, _>>()?;
-    
-    Ok(dirs)
+     let mut stmt = self.conn.prepare(
+     "SELECT path, last_scan, enabled FROM scanned_directories ORDER BY path ASC"
+     )?;
+
+     let dirs = stmt.query_map([], |row| {
+     Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+     })?
+     .collect::<Result<Vec<_>, _>>()?;
+
+     Ok(dirs)
+     }
+
+    // Live TV methods
+    pub fn upsert_live_tv_channels(&self, channels: &[crate::models::LiveTvChannel]) -> Result<(), anyhow::Error> {
+        for channel in channels {
+            self.conn.execute(
+                "INSERT OR REPLACE INTO live_tv_channels
+                 (id, name, logo, channel_group, tvg_id, stream_url, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    channel.id,
+                    channel.name,
+                    channel.logo,
+                    channel.group,
+                    channel.tvg_id,
+                    channel.stream_url,
+                    chrono::Utc::now().to_rfc3339(),
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn get_live_tv_channels(&self) -> Result<Vec<crate::models::LiveTvChannel>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, logo, channel_group, tvg_id, stream_url
+             FROM live_tv_channels
+             ORDER BY name ASC"
+        )?;
+
+        let channels = stmt.query_map([], |row| {
+            Ok(crate::models::LiveTvChannel {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                logo: row.get(2)?,
+                group: row.get(3)?,
+                tvg_id: row.get(4)?,
+                stream_url: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(channels)
+    }
+
+    pub fn upsert_epg_programs(&self, programs: &[crate::models::EpgProgram]) -> Result<(), anyhow::Error> {
+        for program in programs {
+            self.conn.execute(
+                "INSERT OR REPLACE INTO epg_programs
+                 (channel_id, start_time, end_time, title, description, category, season, episode, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    program.channel_id,
+                    program.start,
+                    program.end,
+                    program.title,
+                    program.description,
+                    program.category,
+                    program.season,
+                    program.episode,
+                    chrono::Utc::now().to_rfc3339(),
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn get_epg_for_channel(
+        &self,
+        channel_id: &str,
+        since: Option<i64>,
+        until: Option<i64>,
+    ) -> Result<Vec<crate::models::EpgProgram>, anyhow::Error> {
+        let mut query = String::from(
+            "SELECT channel_id, start_time, end_time, title, description, category, season, episode
+             FROM epg_programs
+             WHERE channel_id = ?1"
+        );
+
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(channel_id)];
+
+        if let Some(since_ts) = since {
+            query.push_str(" AND end_time >= ?2");
+            params.push(Box::new(since_ts));
+        }
+
+        if let Some(until_ts) = until {
+            query.push_str(&format!(" AND start_time <= ?{}", params.len() + 1));
+            params.push(Box::new(until_ts));
+        }
+
+        query.push_str(" ORDER BY start_time ASC");
+
+        let mut stmt = self.conn.prepare(&query)?;
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params
+            .iter()
+            .map(|p| p.as_ref() as &dyn rusqlite::ToSql)
+            .collect();
+
+        let programs = stmt.query_map(params_refs.as_slice(), |row| {
+            Ok(crate::models::EpgProgram {
+                channel_id: row.get(0)?,
+                start: row.get(1)?,
+                end: row.get(2)?,
+                title: row.get(3)?,
+                description: row.get(4)?,
+                category: row.get(5)?,
+                season: row.get(6)?,
+                episode: row.get(7)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(programs)
     }
 }
 

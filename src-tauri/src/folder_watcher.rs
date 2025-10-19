@@ -4,7 +4,7 @@
  * Monitors configured directories for video file changes and updates database
  */
 use anyhow::{anyhow, Result};
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -57,7 +57,7 @@ impl FolderWatcherManager {
                 match result {
                     Ok(events) => {
                         for event in events {
-                            for path in event.paths {
+                            for path in &event.paths {
                                 // Only process video files
                                 if !is_video_file(&path) {
                                     continue;

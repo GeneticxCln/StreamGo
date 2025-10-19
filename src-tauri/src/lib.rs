@@ -1,4 +1,6 @@
 use std::sync::{Arc, Mutex};
+use tauri::Manager;
+use serde::Serialize;
 
 mod addon_protocol;
 mod aggregator;
@@ -9,6 +11,7 @@ mod casting;
 mod database;
 mod folder_watcher;
 mod i18n;
+mod live_tv;
 mod local_media;
 mod logging;
 mod migrations;
@@ -33,7 +36,6 @@ pub use local_media::{LocalMediaFile, LocalMediaScanner, VideoMetadata};
 pub use player::{ExternalPlayer, PlayerManager, SubtitleCue, SubtitleManager};
 pub use subtitle_providers::{SubtitleProvider, SubtitleResult};
 
-use serde::Serialize;
 
 // Application state
 pub struct AppState {
@@ -1683,10 +1685,11 @@ async fn scan_local_folder(
     let files = scanner.scan_all().await.map_err(|e| e.to_string())?;
     
     // Save to database
+    let files_clone = files.clone();
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        for file in &files {
+        for file in &files_clone {
             db.upsert_local_media_file(file).map_err(|e| e.to_string())?;
         }
         db.add_scanned_directory(&path).map_err(|e| e.to_string())?;
@@ -1694,7 +1697,7 @@ async fn scan_local_folder(
     })
     .await
     .map_err(|e| e.to_string())??;
-    
+
     Ok(files)
 }
 
@@ -1756,10 +1759,11 @@ async fn start_folder_watcher(paths: Vec<String>, state: tauri::State<'_, AppSta
         .clone();
     let db_for_watcher = state.db.clone();
     let paths_buf: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    tokio::spawn(async move {
-        let mut mgr = watcher.lock().await;
-        let _ = mgr.start_watching(paths_buf, db_for_watcher);
-    });
+
+    let mut mgr = watcher.lock().await;
+    mgr.start_watching(paths_buf, db_for_watcher)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -2123,14 +2127,16 @@ pub fn run() {
 
             // Start folder watcher for previously-scanned directories
             let state = app.state::<AppState>();
-            let db = state.db.clone();
+            let db_arc = state.db.clone();
             let watcher_opt = state.folder_watcher.clone();
+
             if let Some(watcher) = watcher_opt {
-                tokio::spawn(async move {
+                tauri::async_runtime::spawn(async move {
                     // Load enabled directories
-                    let paths: Vec<std::path::PathBuf> = tokio::task::spawn_blocking(move || {
+                    let db_lookup = db_arc.clone();
+                    let paths: Vec<std::path::PathBuf> = tauri::async_runtime::spawn_blocking(move || {
                         let mut out: Vec<std::path::PathBuf> = Vec::new();
-                        if let Ok(db_guard) = db.lock() {
+                        if let Ok(db_guard) = db_lookup.lock() {
                             if let Ok(dirs) = db_guard.get_scanned_directories() {
                                 for (path, _last, enabled) in dirs {
                                     if enabled { out.push(std::path::PathBuf::from(path)); }
@@ -2144,7 +2150,7 @@ pub fn run() {
 
                     if !paths.is_empty() {
                         let mut mgr = watcher.lock().await;
-                        if let Err(e) = mgr.start_watching(paths, state.db.clone()) .await {
+                        if let Err(e) = mgr.start_watching(paths, db_arc.clone()).await {
                             tracing::error!(error = %e, "Failed to start folder watcher");
                         } else {
                             tracing::info!("Folder watcher started for configured directories");

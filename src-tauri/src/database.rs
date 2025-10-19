@@ -1026,8 +1026,8 @@ impl Database {
             "INSERT OR REPLACE INTO local_media_files 
              (id, file_path, file_name, file_size, title, year, season, episode, 
               duration, resolution, video_codec, audio_codec, tmdb_id, imdb_id, 
-              poster_url, added_at, last_modified)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+              poster_url, added_at, last_modified, last_scanned)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 file.id,
                 file.file_path,
@@ -1046,6 +1046,7 @@ impl Database {
                 file.poster_url,
                 file.added_at.to_rfc3339(),
                 file.last_modified.to_rfc3339(),
+                chrono::Utc::now().to_rfc3339(),
             ],
         )?;
         Ok(())
@@ -1101,24 +1102,31 @@ impl Database {
     pub fn add_scanned_directory(&self, path: &str) -> Result<(), anyhow::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT OR REPLACE INTO scanned_directories (path, last_scanned, enabled)
-             VALUES (?1, ?2, 1)",
-            params![path, now],
+            "INSERT OR REPLACE INTO scanned_directories (path, enabled, recursive, last_scan, file_count, added_at)
+             VALUES (
+                 ?1,
+                 1,
+                 COALESCE((SELECT recursive FROM scanned_directories WHERE path = ?1), 1),
+                 ?2,
+                 COALESCE((SELECT file_count FROM scanned_directories WHERE path = ?1), 0),
+                 COALESCE((SELECT added_at FROM scanned_directories WHERE path = ?1), ?3)
+             )",
+            params![path, now.clone(), now],
         )?;
         Ok(())
     }
 
     pub fn get_scanned_directories(&self) -> Result<Vec<(String, String, bool)>, anyhow::Error> {
-        let mut stmt = self.conn.prepare(
-            "SELECT path, last_scanned, enabled FROM scanned_directories ORDER BY path ASC"
-        )?;
-
-        let dirs = stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(dirs)
+    let mut stmt = self.conn.prepare(
+    "SELECT path, last_scan, enabled FROM scanned_directories ORDER BY path ASC"
+    )?;
+    
+    let dirs = stmt.query_map([], |row| {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    })?
+    .collect::<Result<Vec<_>, _>>()?;
+    
+    Ok(dirs)
     }
 }
 

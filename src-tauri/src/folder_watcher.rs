@@ -42,7 +42,7 @@ impl FolderWatcherManager {
     pub async fn start_watching(
         &mut self,
         paths: Vec<PathBuf>,
-        db: Arc<tokio::sync::Mutex<Database>>,
+        db: Arc<std::sync::Mutex<Database>>,
     ) -> Result<()> {
         info!("Starting folder watcher for {} paths", paths.len());
 
@@ -153,7 +153,7 @@ impl Drop for FolderWatcherManager {
 /// Handle a watch event
 async fn handle_watch_event(
     event: WatchEvent,
-    db: Arc<tokio::sync::Mutex<Database>>,
+    db: Arc<std::sync::Mutex<Database>>,
 ) -> Result<()> {
     match event {
         WatchEvent::FileCreated(path) | WatchEvent::FileModified(path) => {
@@ -164,19 +164,24 @@ async fn handle_watch_event(
             match scanner.scan_directory(&path.parent().unwrap_or(Path::new("/"))).await {
                 Ok(files) => {
                     // Find the specific file we're interested in
-                    let file = files.iter().find(|f| f.file_path == path.to_string_lossy());
-
-                    if let Some(file) = file {
-                        // Save to database
-                        let db = db.lock().await;
-                        match db.upsert_local_media_file(file) {
-                            Ok(_) => {
-                                info!("Added/updated file in database: {}", path.display());
+                    if let Some(file) = files.iter().find(|f| f.file_path == path.to_string_lossy()) {
+                        // Save to database in blocking task
+                        let db_clone = db.clone();
+                        let file_clone = file.clone();
+                        tokio::task::spawn_blocking(move || {
+                            match db_clone.lock() {
+                                Ok(db_guard) => {
+                                    if let Err(e) = db_guard.upsert_local_media_file(&file_clone) {
+                                        error!(error = %e, path = %path.display(), "Failed to save file to database");
+                                    } else {
+                                        info!("Added/updated file in database: {}", path.display());
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(error = %e, "Failed to lock database for update");
+                                }
                             }
-                            Err(e) => {
-                                error!(error = %e, path = %path.display(), "Failed to save file to database");
-                            }
-                        }
+                        });
                     }
                 }
                 Err(e) => {
@@ -188,16 +193,19 @@ async fn handle_watch_event(
             info!("Processing deleted file: {}", path.display());
 
             // Remove from database
-            let db = db.lock().await;
+            let db_clone = db.clone();
             let path_str = path.to_string_lossy().to_string();
-            match db.delete_local_media_file(&path_str) {
-                Ok(_) => {
-                    info!("Removed file from database: {}", path.display());
+            tokio::task::spawn_blocking(move || {
+                match db_clone.lock() {
+                    Ok(db_guard) => {
+                        match db_guard.delete_local_media_file(&path_str) {
+                            Ok(_) => info!("Removed file from database: {}", path_str),
+                            Err(e) => error!(error = %e, path = %path_str, "Failed to remove file from database"),
+                        }
+                    }
+                    Err(e) => error!(error = %e, "Failed to lock database for delete"),
                 }
-                Err(e) => {
-                    error!(error = %e, path = %path.display(), "Failed to remove file from database");
-                }
-            }
+            });
         }
     }
 

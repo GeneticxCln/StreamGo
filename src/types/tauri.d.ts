@@ -113,6 +113,58 @@ export interface StreamWithSource extends Stream {
   addon_name: string;
 }
 
+// Live TV
+export interface LiveTvChannel {
+  id: string;
+  name: string;
+  logo?: string;
+  group?: string;
+  tvg_id?: string;
+  stream_url: string;
+}
+
+export interface EpgProgram {
+  channel_id: string;
+  start: number; // unix timestamp
+  end: number;   // unix timestamp
+  title: string;
+  description?: string;
+  category?: string;
+  season?: number;
+  episode?: number;
+}
+
+// Local media
+export interface LocalMediaFile {
+  id: string;
+  file_path: string;
+  file_name: string;
+  file_size: number;
+  title: string;
+  year?: number;
+  season?: number;
+  episode?: number;
+  duration?: number;
+  resolution?: string;
+  video_codec?: string;
+  audio_codec?: string;
+  tmdb_id?: string;
+  imdb_id?: string;
+  poster_url?: string;
+  added_at: string;
+  last_modified: string;
+}
+
+export interface VideoMetadata {
+  duration?: number;
+  width?: number;
+  height?: number;
+  video_codec?: string;
+  audio_codec?: string;
+  bitrate?: number;
+  fps?: number;
+}
+
 export interface Subtitle {
   id: string;
   url: string;
@@ -402,6 +454,22 @@ get_streams: { args: { contentId: string; mediaType?: string }; return: StreamWi
   get_cache_stats: { args: {}; return: CacheStats };
   clear_cache: { args: {}; return: void };
   clear_expired_cache: { args: {}; return: number };
+
+  // Local Media
+  scan_local_folder: { args: { path: string }; return: LocalMediaFile[] };
+  get_local_media_files: { args: {}; return: LocalMediaFile[] };
+  probe_video_file: { args: { path: string }; return: VideoMetadata };
+
+  // Folder Watcher
+  start_folder_watcher: { args: { paths: string[] }; return: void };
+  stop_folder_watcher: { args: {}; return: void };
+  get_watched_paths: { args: {}; return: string[] };
+
+  // Live TV
+  live_tv_import_m3u: { args: { url: string }; return: number };
+  live_tv_get_channels: { args: {}; return: LiveTvChannel[] };
+  live_tv_import_xmltv: { args: { url: string }; return: number };
+  live_tv_get_epg: { args: { channel_id: string; since?: number; until?: number }; return: EpgProgram[] };
   
   // Health & Diagnostics
   get_addon_health_summaries: { args: {}; return: AddonHealthSummary[] };

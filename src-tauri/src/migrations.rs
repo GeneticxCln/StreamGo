@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: u32 = 8;
+pub const CURRENT_SCHEMA_VERSION: u32 = 9;
 
 /// Migration trait for implementing version upgrades
 pub trait Migration {
@@ -699,6 +699,61 @@ impl Migration008LocalMedia {
     }
 }
 
+/// Migration v9: Live TV channels and EPG tables
+struct Migration009LiveTv;
+
+impl Migration for Migration009LiveTv {
+    fn version(&self) -> u32 { 9 }
+    fn description(&self) -> &str { "Add live TV channels and EPG tables" }
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Channels table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS live_tv_channels (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                logo TEXT,
+                channel_group TEXT,
+                tvg_id TEXT,
+                stream_url TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // EPG programs table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS epg_programs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                start INTEGER NOT NULL,
+                end INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                category TEXT,
+                season INTEGER,
+                episode INTEGER,
+                FOREIGN KEY(channel_id) REFERENCES live_tv_channels(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Indexes
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_live_tv_channels_group ON live_tv_channels(channel_group)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_epg_channel_time ON epg_programs(channel_id, start)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_epg_time ON epg_programs(start, end)",
+            [],
+        )?;
+
+        Ok(())
+    }
+}
+
 /// Migration runner
 pub struct MigrationRunner {
     migrations: Vec<Box<dyn Migration>>,
@@ -715,6 +770,7 @@ impl MigrationRunner {
             Box::new(Migration006AddonConfig),
             Box::new(Migration007FTS5Search),
             Box::new(Migration008LocalMedia),
+            Box::new(Migration009LiveTv),
         ];
         Self { migrations }
     }

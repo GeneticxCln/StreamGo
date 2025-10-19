@@ -41,6 +41,7 @@ pub struct AppState {
     pub cache: Arc<Mutex<CacheManager>>,
     pub streaming_server: Option<Arc<streaming_server::StreamingServer>>,
     pub cast_manager: Option<Arc<CastManager>>,
+    pub folder_watcher: Option<Arc<tokio::sync::Mutex<folder_watcher::FolderWatcherManager>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1626,34 +1627,7 @@ async fn get_addon_health(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
-// Local media commands
-#[tauri::command]
-async fn scan_local_media(paths: Vec<String>) -> Result<Vec<LocalMediaFile>, String> {
-    let pathbufs: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
-    let scanner = LocalMediaScanner::new(pathbufs);
-    
-    scanner
-        .scan_all()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn scan_local_folder(path: String) -> Result<Vec<LocalMediaFile>, String> {
-    let scanner = LocalMediaScanner::new(vec![std::path::PathBuf::from(path)]);
-    
-    scanner
-        .scan_all()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn probe_video_file(path: String) -> Result<VideoMetadata, String> {
-    local_media::probe_video_metadata(&path)
-        .await
-        .map_err(|e| e.to_string())
-}
+// Local media commands - removed duplicates (DB-integrated versions are defined later)
 
 // Subtitle auto-fetch commands
 #[tauri::command]
@@ -1754,6 +1728,121 @@ async fn get_scanned_directories(
     tokio::task::spawn_blocking(move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.get_scanned_directories().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// Folder watcher commands
+#[tauri::command]
+async fn start_folder_watcher(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    use std::path::PathBuf;
+    // Save directories to DB
+    let db = state.db.clone();
+    let paths_clone = paths.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        for p in &paths_clone {
+            let _ = db.add_scanned_directory(p);
+        }
+        Ok::<(), String>(())
+    }).await.map_err(|e| e.to_string())??;
+
+    // Start watcher
+    let watcher = state
+        .folder_watcher
+        .as_ref()
+        .ok_or_else(|| "Folder watcher not available".to_string())?
+        .clone();
+    let db_for_watcher = state.db.clone();
+    let paths_buf: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    tokio::spawn(async move {
+        let mut mgr = watcher.lock().await;
+        let _ = mgr.start_watching(paths_buf, db_for_watcher);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_folder_watcher(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let watcher = state
+        .folder_watcher
+        .as_ref()
+        .ok_or_else(|| "Folder watcher not available".to_string())?
+        .clone();
+    let mut mgr = watcher.lock().await;
+    mgr.stop_watching();
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_watched_paths(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    let watcher = state
+        .folder_watcher
+        .as_ref()
+        .ok_or_else(|| "Folder watcher not available".to_string())?
+        .clone();
+    let mgr = watcher.lock().await;
+    Ok(mgr.get_watched_paths().into_iter().map(|p| p.to_string_lossy().to_string()).collect())
+}
+
+// Live TV commands
+#[tauri::command]
+async fn live_tv_import_m3u(url: String, state: tauri::State<'_, AppState>) -> Result<usize, String> {
+    let content = crate::live_tv::LiveTvManager::fetch_text(&url)
+        .await
+        .map_err(|e| e.to_string())?;
+    let channels = crate::live_tv::LiveTvManager::parse_m3u(&content);
+    let count = channels.len();
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.upsert_live_tv_channels(&channels).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(count)
+}
+
+#[tauri::command]
+async fn live_tv_get_channels(state: tauri::State<'_, AppState>) -> Result<Vec<LiveTvChannel>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_live_tv_channels().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn live_tv_import_xmltv(url: String, state: tauri::State<'_, AppState>) -> Result<usize, String> {
+    let xml = crate::live_tv::LiveTvManager::fetch_text(&url)
+        .await
+        .map_err(|e| e.to_string())?;
+    let programs = crate::live_tv::LiveTvManager::parse_xmltv(&xml).map_err(|e| e.to_string())?;
+    let count = programs.len();
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.upsert_epg_programs(&programs).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(count)
+}
+
+#[tauri::command]
+async fn live_tv_get_epg(
+    channel_id: String,
+    since: Option<i64>,
+    until: Option<i64>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<EpgProgram>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_epg_for_channel(&channel_id, since, until).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2015,12 +2104,13 @@ pub fn run() {
         cache: Arc::new(Mutex::new(cache)),
         streaming_server,
         cast_manager,
+        folder_watcher: Some(Arc::new(tokio::sync::Mutex::new(folder_watcher::FolderWatcherManager::new()))),
     };
 
     tauri::Builder::default()
         // .plugin(tauri_plugin_updater::Builder::new().build())  // Disabled - no code signing
         .manage(app_state)
-        .setup(|_app| {
+        .setup(|app| {
             // Initialize application data directories
             if let Some(app_data_dir) = dirs::data_local_dir() {
                 let streamgo_dir = app_data_dir.join("StreamGo");
@@ -2029,6 +2119,40 @@ pub fn run() {
                 } else {
                     tracing::info!(directory = ?streamgo_dir, "App data directory initialized");
                 }
+            }
+
+            // Start folder watcher for previously-scanned directories
+            let state = app.state::<AppState>();
+            let db = state.db.clone();
+            let watcher_opt = state.folder_watcher.clone();
+            if let Some(watcher) = watcher_opt {
+                tokio::spawn(async move {
+                    // Load enabled directories
+                    let paths: Vec<std::path::PathBuf> = tokio::task::spawn_blocking(move || {
+                        let mut out: Vec<std::path::PathBuf> = Vec::new();
+                        if let Ok(db_guard) = db.lock() {
+                            if let Ok(dirs) = db_guard.get_scanned_directories() {
+                                for (path, _last, enabled) in dirs {
+                                    if enabled { out.push(std::path::PathBuf::from(path)); }
+                                }
+                            }
+                        }
+                        out
+                    })
+                    .await
+                    .unwrap_or_default();
+
+                    if !paths.is_empty() {
+                        let mut mgr = watcher.lock().await;
+                        if let Err(e) = mgr.start_watching(paths, state.db.clone()) .await {
+                            tracing::error!(error = %e, "Failed to start folder watcher");
+                        } else {
+                            tracing::info!("Folder watcher started for configured directories");
+                        }
+                    } else {
+                        tracing::info!("No configured directories to watch at startup");
+                    }
+                });
             }
 
             tracing::info!("StreamGo setup completed successfully");
@@ -2096,9 +2220,20 @@ pub fn run() {
             get_addon_health_summaries,
             get_addon_health,
             auto_disable_unhealthy_addons,
-            scan_local_media,
+            // Local media scanning
             scan_local_folder,
+            get_local_media_files,
             probe_video_file,
+            // Folder watcher
+            start_folder_watcher,
+            stop_folder_watcher,
+            get_watched_paths,
+            // Live TV
+            live_tv_import_m3u,
+            live_tv_get_channels,
+            live_tv_import_xmltv,
+            live_tv_get_epg,
+            // Subtitles
             auto_fetch_subtitles,
             download_best_subtitle,
             calculate_video_hash,

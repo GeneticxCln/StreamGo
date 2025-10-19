@@ -363,3 +363,33 @@ pub struct AddonHealthSummary {
     pub last_error: Option<String>,
     pub health_score: f64,
 }
+
+// Live TV models
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveTvChannel {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tvg_id: Option<String>,
+    pub stream_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpgProgram {
+    pub channel_id: String,
+    pub start: i64, // unix timestamp (UTC)
+    pub end: i64,   // unix timestamp (UTC)
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub season: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub episode: Option<u32>,
+}

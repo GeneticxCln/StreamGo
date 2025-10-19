@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte';
-  import { libraryStore, libraryCount } from '../../stores/library';
+  import { libraryStore, libraryCount } from '@/stores/library';
   import MediaCard from '../shared/MediaCard.svelte';
   import VirtualGrid from '../shared/VirtualGrid.svelte';
   

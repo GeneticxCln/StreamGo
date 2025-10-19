@@ -600,13 +600,14 @@ async fn rate_addon(addon_id: String, rating: u8, state: tauri::State<'_, AppSta
 #[tauri::command]
 async fn get_addon_rating(addon_id: String, state: tauri::State<'_, AppState>) -> Result<AddonRatingSummary, String> {
     let db = state.inner().db.clone();
-    tokio::task::spawn_blocking(move || {
+    let db_result = tokio::task::spawn_blocking(move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.get_addon_rating_summary(&addon_id).map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
-    .ok_or_else(|| "No rating available".to_string())
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    db_result.and_then(|summary_opt| summary_opt.ok_or_else(|| "No rating available".to_string()))
 }
 
 #[tauri::command]
@@ -2204,6 +2205,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(app_state)
         .setup(|app| {
             // Initialize application data directories

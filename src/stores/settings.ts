@@ -1,19 +1,7 @@
-/**
- * Settings Store - Svelte reactive state management
- * 
- * Manages user preferences and settings state
- */
-
-import { writable, derived } from 'svelte/store';
+import { writable } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import type { UserPreferences } from '../types/tauri';
-
-export interface SettingsState {
-  settings: UserPreferences | null;
-  loading: boolean;
-  error: string | null;
-  hasChanges: boolean;
-}
+import { Toast } from '../ui-utils';
 
 // Default settings
 const DEFAULT_SETTINGS: UserPreferences = {
@@ -30,139 +18,66 @@ const DEFAULT_SETTINGS: UserPreferences = {
   notifications_enabled: true,
   auto_update: true,
   telemetry_enabled: false,
-  tmdb_api_key: '',
-} as any;
+  default_quality: 'auto',
+  video_codec: 'auto',
+  max_bitrate: 'auto',
+  hardware_accel: true,
+  audio_codec: 'auto',
+  audio_channels: 'auto',
+  volume_normalize: false,
+  autoplay_next: true,
+  skip_intro: false,
+  resume_playback: true,
+  subtitles_enabled: false,
+  subtitle_size: 'medium',
+  buffer_size: 'medium',
+  preload_next: true,
+  torrent_connections: '100',
+  cache_size: '1024',
+  player_engine: 'auto',
+  debug_logging: false,
+  analytics: false
+};
 
-// Create the writable store
 function createSettingsStore() {
-  const { subscribe, set, update } = writable<SettingsState>({
-    settings: null,
-    loading: false,
-    error: null,
-    hasChanges: false,
-  });
+  const { subscribe, set, update } = writable<UserPreferences>(DEFAULT_SETTINGS);
 
   return {
     subscribe,
-    
-    /**
-     * Load settings from backend
-     */
-    async load() {
-      update(state => ({ ...state, loading: true, error: null }));
-      
+
+    async loadSettings() {
       try {
         const settings = await invoke<UserPreferences>('get_settings');
-        update(state => ({
-          ...state,
-          settings,
-          loading: false,
-          hasChanges: false,
-        }));
+        set(settings);
       } catch (error) {
         console.error('Failed to load settings:', error);
-        update(state => ({
-          ...state,
-          settings: DEFAULT_SETTINGS,
-          loading: false,
-          error: error instanceof Error ? error.message : 'Failed to load settings',
-        }));
+        set(DEFAULT_SETTINGS);
       }
     },
-    
-    /**
-     * Update a single setting
-     */
-    updateSetting<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) {
-      update(state => {
-        if (!state.settings) return state;
-        
-        return {
-          ...state,
-          settings: {
-            ...state.settings,
-            [key]: value,
-          },
-          hasChanges: true,
-        };
-      });
-    },
-    
-    /**
-     * Save settings to backend
-     */
-    async save() {
-      let currentSettings: UserPreferences | null = null;
-      
-      update(state => {
-        currentSettings = state.settings;
-        return { ...state, loading: true, error: null };
-      });
-      
-      if (!currentSettings) {
-        update(state => ({ ...state, loading: false, error: 'No settings to save' }));
-        return false;
-      }
-      
+
+    async saveSettings() {
       try {
-        await invoke('save_settings', { settings: currentSettings });
-        update(state => ({
-          ...state,
-          loading: false,
-          hasChanges: false,
-        }));
-        return true;
+        update(state => {
+          invoke('save_settings', { settings: state });
+          return state;
+        });
+        Toast.success('Settings saved successfully!');
       } catch (error) {
         console.error('Failed to save settings:', error);
-        update(state => ({
-          ...state,
-          loading: false,
-          error: error instanceof Error ? error.message : 'Failed to save settings',
-        }));
-        return false;
+        Toast.error(`Error saving settings: ${error}`);
       }
     },
-    
-    /**
-     * Reset settings to defaults
-     */
-    reset() {
-      update(state => ({
-        ...state,
-        settings: DEFAULT_SETTINGS,
-        hasChanges: true,
-      }));
+
+    async resetSettings() {
+      set(DEFAULT_SETTINGS);
+      await this.saveSettings();
+      Toast.success('Settings have been reset to defaults.');
     },
-    
-    /**
-     * Reset state (for testing or reloading)
-     */
-    clear() {
-      set({
-        settings: null,
-        loading: false,
-        error: null,
-        hasChanges: false,
-      });
-    },
+
+    // Allow direct update for bind: directives
+    update,
+    set,
   };
 }
 
-// Export the store instance
 export const settingsStore = createSettingsStore();
-
-// Derived stores for convenience
-export const currentTheme = derived(
-  settingsStore,
-  $store => $store.settings?.theme || 'dark'
-);
-
-export const isLoading = derived(
-  settingsStore,
-  $store => $store.loading
-);
-
-export const hasUnsavedChanges = derived(
-  settingsStore,
-  $store => $store.hasChanges
-);

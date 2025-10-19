@@ -10,14 +10,12 @@
 
 import App from './App.svelte';
 
-// Import legacy vanilla TS app
-// This will be phased out section-by-section
-import './legacy/main-vanilla';
+
 
 // Mount Svelte app
 // It will co-exist with vanilla TS code
 const app = new App({
-  target: document.getElementById('svelte-root') as HTMLElement,
+  target: document.getElementById('app') as HTMLElement,
 });
 
 // Export for HMR (Hot Module Replacement)

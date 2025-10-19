@@ -606,7 +606,7 @@ export class DiagnosticsManager {
        // In a real implementation, this would integrate with an email service
        await navigator.clipboard.writeText(`Diagnostics file: ${filePath}`);
 
-       Toast.info(`Diagnostics file path copied to clipboard. Please email it to: support@streamgo.app`);
+       Toast.info('Diagnostics file path copied to clipboard. Please email it to: support@streamgo.app');
 
        // You could also implement direct email sending here using a service like EmailJS
        // or integrate with the system's default email client

@@ -360,12 +360,19 @@ impl CastManager {
 
     /// Convert localhost URLs to network-accessible URLs
     fn make_url_accessible(&self, url: &str) -> String {
-        if url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost") {
-            url.replace("127.0.0.1", &self.local_ip)
-                .replace("localhost", &self.local_ip)
-        } else {
-            url.to_string()
+        if let Ok(mut parsed_url) = url::Url::parse(url) {
+            if parsed_url.host_str() == Some("127.0.0.1") || parsed_url.host_str() == Some("localhost") {
+                            if let Err(e) = parsed_url.set_host(Some(&self.local_ip)) {
+                                warn!("Failed to set host for casting URL: {:?}", e);
+                                return url.to_string();
+                            }
+                            if let Err(e) = parsed_url.set_port(Some(self.streaming_port)) {
+                                warn!("Failed to set port for casting URL: {:?}", e);
+                                return url.to_string();
+                            }                return parsed_url.to_string();
+            }
         }
+        url.to_string()
     }
 
     /// Start Chromecast session

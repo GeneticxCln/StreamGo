@@ -3,7 +3,7 @@
  * 
  * Manages casting devices, sessions, and state
  */
-import { writable, derived, get } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import type { CastDevice, CastSession } from '../types/tauri';
 
@@ -98,23 +98,22 @@ function createCastingStore() {
 
     // Stop current cast session
     async stopCasting(): Promise<void> {
-      const state = get({ subscribe });
-      if (!state.activeSession) return;
+      update(state => {
+        if (!state.activeSession) return state;
 
-      try {
-        await invoke('stop_casting', {
+        invoke('stop_casting', {
           sessionId: state.activeSession.session_id,
+        }).catch(error => {
+          console.error('Failed to stop casting:', error);
+          update(state => ({
+            ...state,
+            error: `Failed to stop casting: ${error}`,
+          }));
         });
 
-        update(state => ({ ...state, activeSession: null }));
-        console.log('Cast session stopped');
-      } catch (error) {
-        console.error('Failed to stop casting:', error);
-        update(state => ({ 
-          ...state, 
-          error: `Failed to stop casting: ${error}`,
-        }));
-      }
+        return { ...state, activeSession: null };
+      });
+      console.log('Cast session stopped');
     },
 
     // Get active sessions
@@ -188,10 +187,17 @@ export const chromecastDevices = derived(
 // Auto-refresh devices periodically when device picker is open
 export function startDeviceRefresh() {
   const interval = setInterval(() => {
-    const state = get(castingStore);
-    if (state.showDevicePicker && !state.isDiscovering) {
+    // Subscribe to get current state
+    let currentState: any = null;
+    const unsubscribe = castingStore.subscribe(state => {
+      currentState = state;
+    });
+
+    if (currentState && currentState.showDevicePicker && !currentState.isDiscovering) {
       castingStore.discoverDevices(3);
     }
+
+    unsubscribe();
   }, 10000); // Refresh every 10 seconds
 
   return () => clearInterval(interval);

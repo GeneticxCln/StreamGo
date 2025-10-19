@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { playerStore } from '../../stores/player';
+  import { playerStore } from '@/stores/player';
   import QualitySelector from './QualitySelector.svelte';
   import SubtitleControls from './SubtitleControls.svelte';
   import PlayerStats from './PlayerStats.svelte';

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { castingStore, hasActiveSession, currentDevice } from '../stores/castingStore';
+  import { castingStore, hasActiveSession, currentDevice } from '@/stores/castingStore';
   import { onMount, onDestroy } from 'svelte';
 
   export let currentMediaUrl: string = '';

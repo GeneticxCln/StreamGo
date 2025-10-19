@@ -1,84 +1,83 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import type { Playlist, MediaItem } from '../../types/tauri';
+  import { playlistStore } from '@/stores/playlistStore';
   import MediaCard from '../shared/MediaCard.svelte';
+  import { Modal } from '../../ui-utils';
 
-  let playlists: Playlist[] = [];
-  let loading = false;
-  let error: string | null = null;
+  onMount(() => {
+    if ($playlistStore.playlists.length === 0) {
+      playlistStore.loadPlaylists();
+    }
+  });
 
-  let viewing: Playlist | null = null;
-  let items: MediaItem[] = [];
-
-  onMount(loadPlaylists);
-
-  async function loadPlaylists() {
-    loading = true;
-    error = null;
-    try {
-      playlists = await invoke<Playlist[]>('get_playlists', {} as any);
-    } catch (e) {
-      error = String(e);
-    } finally {
-      loading = false;
+  async function handleCreatePlaylist() {
+    const name = await Modal.prompt('Enter playlist name');
+    if (!name) return;
+    const newPlaylist = await playlistStore.createPlaylist(name);
+    if (newPlaylist) {
+      playlistStore.viewPlaylist(newPlaylist.id);
     }
   }
 
-  async function viewPlaylist(pl: Playlist) {
-    viewing = pl;
-    items = await invoke<MediaItem[]>('get_playlist_items', { playlistId: pl.id });
+  function handleDragStart(e: DragEvent, itemId: string) {
+    e.dataTransfer?.setData('text/plain', itemId);
   }
 
-  async function backToList() {
-    viewing = null;
-    items = [];
-  }
+  function handleDrop(e: DragEvent, targetItemId: string) {
+    const draggedItemId = e.dataTransfer?.getData('text/plain');
+    if (!draggedItemId || draggedItemId === targetItemId) return;
 
-  async function createPlaylist() {
-    const name = prompt('Playlist name');
-    if (!name) return;
-    await invoke<string>('create_playlist', { name });
-    await loadPlaylists();
-  }
+    const items = $playlistStore.currentPlaylistItems;
+    const draggedIndex = items.findIndex(i => i.id === draggedItemId);
+    const targetIndex = items.findIndex(i => i.id === targetItemId);
 
-  async function deletePlaylist(pl: Playlist) {
-    if (!confirm(`Delete playlist "${pl.name}"?`)) return;
-    await invoke('delete_playlist', { playlistId: pl.id });
-    await loadPlaylists();
-    if (viewing?.id === pl.id) backToList();
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    const newItems = [...items];
+    const [draggedItem] = newItems.splice(draggedIndex, 1);
+    newItems.splice(targetIndex, 0, draggedItem);
+
+    $playlistStore.currentPlaylistItems = newItems; // Optimistic update
+    const newOrderIds = newItems.map(i => i.id);
+    playlistStore.reorderPlaylist($playlistStore.currentPlaylist!.id, newOrderIds);
   }
 </script>
 
 <div class="playlists-section">
-  {#if viewing}
-    <button class="back-btn" on:click={backToList}>⟵ Back to Playlists</button>
+  {#if $playlistStore.currentPlaylist}
+    <button class="back-btn" on:click={() => playlistStore.viewPlaylist('')}>⟵ Back to Playlists</button>
     <div class="playlist-detail-header">
-      <h2>{viewing.name}</h2>
-      <p class="playlist-detail-meta">{items.length} items</p>
-      <button class="btn btn-danger" on:click={() => deletePlaylist(viewing!)}>Delete Playlist</button>
+      <h2>{$playlistStore.currentPlaylist.name}</h2>
+      <p class="playlist-detail-meta">{$playlistStore.currentPlaylistItems.length} items</p>
+      <button class="btn btn-danger" on:click={() => playlistStore.deletePlaylist($playlistStore.currentPlaylist!.id)}>Delete Playlist</button>
     </div>
-    <div class="movie-grid">
-      {#each items as item (item.id)}
-        <MediaCard {item} />
+    <div class="movie-grid" on:dragover|preventDefault={() => {}}>
+      {#each $playlistStore.currentPlaylistItems as item (item.id)}
+        <div draggable="true" on:dragstart={(e) => handleDragStart(e, item.id)} on:drop|preventDefault={(e) => handleDrop(e, item.id)}>
+            <MediaCard {item} />
+        </div>
       {/each}
     </div>
   {:else}
     <div class="playlists-header">
       <h2>Your Playlists</h2>
-      <button class="btn btn-primary" on:click={createPlaylist}>Create Playlist</button>
+      <button class="btn btn-primary" on:click={handleCreatePlaylist}>Create Playlist</button>
     </div>
 
-    {#if loading}
+    {#if $playlistStore.loading}
       <div class="loading-indicator">Loading playlists...</div>
-    {:else if error}
-      <div class="error-state">{error}</div>
-    {:else if playlists.length === 0}
-      <p class="empty-message">No playlists yet. Create one to get started!</p>
+    {:else if $playlistStore.error}
+      <div class="error-state">{$playlistStore.error}</div>
+    {:else if $playlistStore.playlists.length === 0}
+      <div class="empty-state">
+        <h3>No Playlists</h3>
+        <p>Create a playlist to organize your favorite media.</p>
+        <button class="btn btn-primary" on:click={handleCreatePlaylist}>Create First Playlist</button>
+      </div>
     {:else}
       <div class="playlists-grid">
-        {#each playlists as pl}
-          <div class="playlist-card" on:click={() => viewPlaylist(pl)}>
+        {#each $playlistStore.playlists as pl}
+          <div class="playlist-card" on:click={() => playlistStore.viewPlaylist(pl.id)}>
             <div class="playlist-detail-icon">🎞️</div>
             <div class="playlist-card-body">
               <div class="playlist-card-title">{pl.name}</div>

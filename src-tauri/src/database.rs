@@ -837,9 +837,6 @@ impl Database {
         } else { Ok(None) }
     }
 
-    // Helper method to query media items
-    fn query_media_items(
-        &self,
     fn query_media_items(
         &self,
         mut stmt: rusqlite::Statement,

@@ -29,7 +29,6 @@
     "@testing-library/jest-dom": "^6.4.1",
     "@testing-library/svelte": "^5.2.0",
     "@types/node": "^20.11.0",
-    "@types/webtorrent": "^0.110.1",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "eslint": "^8.56.0",
@@ -41,7 +40,6 @@
     "svelte-eslint-parser": "^0.41.0",
     "typescript": "^5.3.3",
     "vite": "^7.1.10",
-    "vite-plugin-node-polyfills": "^0.24.0",
     "vitest": "^2.1.4"
   },
   "dependencies": {
@@ -50,10 +48,7 @@
     "@tauri-apps/plugin-process": "^2.3.0",
     "@tauri-apps/plugin-updater": "^2.4.0",
     "dashjs": "^4.5.0",
-    "hls.js": "^1.6.13",
-    "webtorrent": "^2.8.4"
+    "hls.js": "^1.6.13"
   },
-  "overrides": {
-    "ip": "^2.0.1"
-  }
+  "overrides": {}
 }

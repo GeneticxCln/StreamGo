@@ -1,7 +1,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use quick_xml::de::from_str as xml_from_str;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::models::{EpgProgram, LiveTvChannel};
 

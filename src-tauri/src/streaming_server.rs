@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use axum::{
-    extract::{Path, Query, State},
-    http::{header, StatusCode},
+    extract::{Path, State},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use librqbit::{
     api::TorrentIdOrHash, SessionOptions, SessionPersistenceConfig, AddTorrentOptions, Session as RqbitSession,
 };
@@ -64,6 +65,7 @@ pub struct StreamingServer {
     port: u16,
     base_url: String,
     active_streams: Arc<RwLock<HashMap<String, StreamInfo>>>,
+    download_dir: PathBuf,
 }
 
 impl StreamingServer {
@@ -80,7 +82,7 @@ impl StreamingServer {
             ..Default::default()
         };
 
-        let session = RqbitSession::new_with_opts(download_dir, opts)
+        let session = RqbitSession::new_with_opts(download_dir.clone(), opts)
             .await
             .context("Failed to create torrent session")?;
 
@@ -91,6 +93,7 @@ impl StreamingServer {
             port,
             base_url,
             active_streams: Arc::new(RwLock::new(HashMap::new())),
+            download_dir,
         })
     }
 
@@ -222,6 +225,7 @@ impl Clone for StreamingServer {
             port: self.port,
             base_url: self.base_url.clone(),
             active_streams: Arc::clone(&self.active_streams),
+            download_dir: self.download_dir.clone(),
         }
     }
 }
@@ -274,7 +278,7 @@ async fn play_stream(
     let play_url = if let Some(file) = video_file {
         format!("{}/streams/{}/file/{}", server.base_url, id, file.index)
     } else {
-        return Err(AppError::not_found("No video file found in torrent".into()));
+        return Err(AppError::NotFound("No video file found in torrent".into()));
     };
 
     Ok(Json(StreamResponse {
@@ -283,34 +287,106 @@ async fn play_stream(
     }))
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct RangeQuery {
-    start: Option<u64>,
-    end: Option<u64>,
-}
-
 async fn stream_file(
     State(server): State<Arc<StreamingServer>>,
     Path((id, file_index)): Path<(String, usize)>,
-    Query(_range): Query<RangeQuery>,
+    headers: HeaderMap,
 ) -> Result<Response, AppError> {
+    let download_dir = &server.download_dir;
     let info = server.get_stream_info(&id).await?;
-    
-    let _file = info
+    let file_info = info
         .files
         .get(file_index)
-        .ok_or_else(|| AppError::not_found("File not found".into()))?;
+        .ok_or_else(|| AppError::NotFound("File not found in torrent".into()))?;
 
-    // TODO: Implement actual file streaming with range support
-    // For now, return a placeholder response
-    let response = (
-        StatusCode::PARTIAL_CONTENT,
-        [(header::CONTENT_TYPE, "video/mp4")],
-        "Streaming not yet fully implemented",
-    );
+    let file_path = download_dir.join(&file_info.path);
 
-    Ok(response.into_response())
+    if !file_path.exists() {
+        return Err(AppError::NotFound(format!(
+            "File not found on disk: {:?}",
+            file_path
+        )));
+    }
+
+    let mut file = tokio::fs::File::open(&file_path).await.map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("Failed to open file: {:?}, error: {}", file_path, e))
+    })?;
+
+    let file_size = file.metadata().await?.len();
+    let mime_type = file_path_to_mime_str(&file_path);
+
+    let range_header = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok());
+
+    let (start, end) = if let Some(range_str) = range_header {
+        let (start, end) = parse_range_header(range_str, file_size)?;
+        (start, end)
+    } else {
+        (0, file_size - 1)
+    };
+
+    let len = end - start + 1;
+
+    file.seek(std::io::SeekFrom::Start(start)).await?;
+    let mut buffer = vec![0; len as usize];
+    file.read_exact(&mut buffer).await?;
+
+    let content_range = format!("bytes {}-{}/{}", start, end, file_size);
+
+    let response = Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::CONTENT_TYPE, mime_type)
+        .header(header::CONTENT_LENGTH, len)
+        .header(header::CONTENT_RANGE, content_range)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(axum::body::Body::from(buffer))
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))?;
+
+    Ok(response)
+}
+
+fn parse_range_header(range_str: &str, file_size: u64) -> Result<(u64, u64), AppError> {
+    let range = range_str.strip_prefix("bytes=").ok_or_else(|| {
+        AppError::BadRequest("Invalid range header format".into())
+    })?;
+
+    let parts: Vec<&str> = range.split('-').collect();
+    if parts.len() != 2 {
+        return Err(AppError::BadRequest("Invalid range header format".into()));
+    }
+
+    let start = parts[0].parse::<u64>().map_err(|_| {
+        AppError::BadRequest("Invalid start of range".into())
+    })?;
+
+    let end = if parts[1].is_empty() {
+        file_size - 1
+    } else {
+        parts[1].parse::<u64>().map_err(|_| {
+            AppError::BadRequest("Invalid end of range".into())
+        })?.min(file_size - 1)
+    };
+
+    if start > end {
+        return Err(AppError::RangeNotSatisfiable(format!(
+            "Invalid range: start > end ({} > {})",
+            start, end
+        )));
+    }
+
+    Ok((start, end))
+}
+
+fn file_path_to_mime_str(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|s| s.to_str()) {
+        Some("mp4") => "video/mp4",
+        Some("mkv") => "video/x-matroska",
+        Some("webm") => "video/webm",
+        Some("avi") => "video/x-msvideo",
+        Some("mov") => "video/quicktime",
+        _ => "application/octet-stream",
+    }
 }
 
 async fn health_check() -> Json<serde_json::Value> {
@@ -329,16 +405,31 @@ fn is_video_file(filename: &str) -> bool {
     video_extensions.iter().any(|ext| filename_lower.ends_with(ext))
 }
 
-struct AppError(anyhow::Error);
+enum AppError {
+    Internal(anyhow::Error),
+    NotFound(String),
+    BadRequest(String),
+    RangeNotSatisfiable(String),
+}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        error!("Request error: {:?}", self.0);
+        let (status, error_message) = match self {
+            AppError::Internal(e) => {
+                error!("Internal server error: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "An internal server error occurred".to_string(),
+                )
+            }
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            AppError::RangeNotSatisfiable(msg) => (StatusCode::RANGE_NOT_SATISFIABLE, msg),
+        };
+
         (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": self.0.to_string()
-            })),
+            status,
+            Json(serde_json::json!({ "error": error_message })),
         )
             .into_response()
     }
@@ -349,12 +440,6 @@ where
     E: Into<anyhow::Error>,
 {
     fn from(err: E) -> Self {
-        Self(err.into())
-    }
-}
-
-impl AppError {
-    fn not_found(msg: String) -> Self {
-        Self(anyhow::anyhow!(msg))
+        AppError::Internal(err.into())
     }
 }

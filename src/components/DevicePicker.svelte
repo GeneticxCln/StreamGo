@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { castingStore, dlnaDevices, chromecastDevices, startDeviceRefresh } from '../stores/castingStore';
+  import { castingStore, dlnaDevices, chromecastDevices, startDeviceRefresh } from '@/stores/castingStore';
   import { onMount, onDestroy } from 'svelte';
   import type { CastDevice } from '../types/tauri';
 

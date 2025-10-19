@@ -153,355 +153,67 @@
                 <!-- Svelte mount point (for migrated sections) -->
                 <div id="svelte-root"></div>
                 
-                <!-- Home Section -->
-                <section id="home-section" class="content-section active">
-                    <div class="hero-section">
-                        <div class="hero-content">
-                            <h2 class="hero-title">Welcome to StreamGo</h2>
-                            <p class="hero-description">Your modern media center for movies and TV shows. Search for content, build your library, and discover new favorites.</p>
-                            <button class="btn btn-primary" id="start-searching-btn">Start Searching</button>
-                        </div>
-                    </div>
-                    
-                    <!-- Continue Watching Section -->
-                    <div class="content-row" id="continue-watching-section" style="display: none;">
-                        <div class="content-row-header">
-                            <h3 class="content-row-title">Continue Watching</h3>
-                        </div>
-                        <div id="continue-watching-row" class="content-row-items">
-                            <!-- Items will be loaded dynamically -->
-                        </div>
-                    </div>
-                    
-                    <!-- Recently Added Section -->
-                    <div class="content-row" id="recent-library-section">
-                        <div class="content-row-header">
-                            <h3 class="content-row-title">Recently Added to Library</h3>
-                            <a href="#library" class="content-row-see-all" onclick="app.showSection('library')">
-                                See All
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+                <!-- Home rendered by Svelte -->
+                <section id="home-section" class="content-section" style="display: none;"></section>
+
+                <!-- Search rendered by Svelte -->
+                <section id="search-section" class="content-section" style="display: none;"></section>
+
+                <!-- Discover rendered by Svelte -->
+                <section id="discover-section" class="content-section" style="display: none;"></section>
+
+                <!-- Library rendered by Svelte -->
+                <section id="library-section" class="content-section" style="display: none;"></section>
+
+                <!-- Calendar rendered by Svelte -->
+                <section id="calendar-section" class="content-section" style="display: none;"></section>
+
+                <!-- Playlists rendered by Svelte -->
+                <section id="playlists-section" class="content-section" style="display: none;"></section>
+
+                <!-- Add-ons rendered by Svelte -->
+                <section id="addons-section" class="content-section" style="display: none;"></section>
+
+                <!-- Media Detail (legacy DOM removed; keep only player container for now) -->
+                <section id="detail-section" class="content-section" style="display: none;">
+                    <div id="video-player-container" class="video-player-container" style="display: none;">
+                        <div class="player-header">
+                            <button class="close-player-btn" id="close-player-btn">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                                 </svg>
-                            </a>
-                        </div>
-                        <div id="recent-library-row" class="content-row-items">
-                            <!-- Items will be loaded dynamically -->
-                        </div>
-                    </div>
-                    
-                    <!-- Trending Section (placeholder) -->
-                    <div class="content-row" id="trending-section" style="display: none;">
-                        <div class="content-row-header">
-                            <h3 class="content-row-title">🔥 Trending Now</h3>
-                        </div>
-                        <div id="trending-row" class="content-row-items">
-                            <!-- Items will be loaded dynamically -->
-                        </div>
-                    </div>
-                    
-                    <!-- Popular Section (placeholder) -->
-                    <div class="content-row" id="popular-section" style="display: none;">
-                        <div class="content-row-header">
-                            <h3 class="content-row-title">⭐ Popular</h3>
-                        </div>
-                        <div id="popular-row" class="content-row-items">
-                            <!-- Items will be loaded dynamically -->
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Search Section -->
-                <section id="search-section" class="content-section">
-                    <div class="search-header">
-                        <h2>Search Movies & TV Shows</h2>
-                        <div class="search-bar-large">
-                            <input type="text" id="search-input" placeholder="Enter movie or TV show name...">
-                            <button id="search-btn" class="btn btn-primary">Search</button>
-                        </div>
-                    </div>
-                    <div id="search-results" class="movie-grid">
-                        <p class="empty-message">Enter a search query to find movies and TV shows</p>
-                    </div>
-                    <div id="search-loading" class="loading-indicator" style="display: none;">
-                        <p>Searching...</p>
-                    </div>
-                </section>
-
-                <!-- Discover Section -->
-                <section id="discover-section" class="content-section">
-                    <div class="search-header">
-                        <h2>Discover</h2>
-                        <div class="search-bar-large" style="gap: 12px; flex-wrap: wrap;">
-                            <select id="discover-type-select" class="setting-select" style="min-width: 150px;">
-                                <option value="movie">🎬 Movies</option>
-                                <option value="series">📺 Series</option>
-                                <option value="channel">📹 Channels</option>
-                                <option value="tv">📡 Live TV</option>
-                            </select>
-                            <select id="discover-catalog-select" class="setting-select" style="flex: 1; min-width: 250px;">
-                                <option value="">Select a catalog...</option>
-                            </select>
-                        </div>
-                        
-                        <!-- Advanced Filters -->
-                        <div class="discover-filters" style="margin-top: 16px; display: none;" id="discover-filters-panel">
-                            <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-                                <!-- Search within catalog -->
-                                <div style="flex: 1; min-width: 200px;" id="filter-search-container" style="display: none;">
-                                    <input 
-                                        type="text" 
-                                        id="discover-search-input" 
-                                        class="setting-select" 
-                                        placeholder="Search in catalog..." 
-                                        style="width: 100%;"
-                                    />
-                                </div>
-                                
-                                <!-- Genre filter -->
-                                <div style="min-width: 180px;" id="filter-genre-container" style="display: none;">
-                                    <select id="discover-genre-select" class="setting-select" style="width: 100%;">
-                                        <option value="">All Genres</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- Year filter -->
-                                <div style="min-width: 140px;" id="filter-year-container" style="display: none;">
-                                    <select id="discover-year-select" class="setting-select" style="width: 100%;">
-                                        <option value="">All Years</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- Apply/Clear buttons -->
-                                <div style="display: flex; gap: 8px;">
-                                    <button id="discover-apply-filters-btn" class="btn btn-primary">Apply Filters</button>
-                                    <button id="discover-clear-filters-btn" class="btn btn-secondary">Clear</button>
-                                </div>
+                            </button>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <h3 id="player-title">Now Playing</h3>
+                                <div id="playlist-queue-info" style="display: none; font-size: 0.85em; opacity: 0.7;"></div>
                             </div>
-                        </div>
-                    </div>
-                    
-                    <div id="discover-grid" class="movie-grid">
-                        <p class="empty-message">Select a catalog to browse content</p>
-                    </div>
-                    <div id="discover-loading" class="loading-indicator" style="display: none;">
-                        <p>Loading...</p>
-                    </div>
-                    <div style="display:flex; justify-content:center; margin-top: 16px;">
-                        <button id="discover-load-more" class="btn btn-secondary" style="display: none;">Load More</button>
-                    </div>
-                </section>
-
-                <!-- Library Section -->
-                <section id="library-section" class="content-section">
-                    <div class="library-header">
-                        <h2>Your Library</h2>
-                        <p class="library-count"><span id="library-count">0</span> items</p>
-                    </div>
-                    <div id="library-grid" class="movie-grid">
-                        <p class="empty-message">Your library is empty. Search for content and add it here!</p>
-                    </div>
-                </section>
-
-                <!-- Calendar Section -->
-                <section id="calendar-section" class="content-section">
-                    <div class="calendar-header">
-                        <h2>Calendar</h2>
-                        <div class="calendar-controls">
-                            <label for="calendar-days" class="calendar-label">Show</label>
-                            <select id="calendar-days" class="setting-select">
-                                <option value="7">Next 7 days</option>
-                                <option value="14" selected>Next 14 days</option>
-                                <option value="30">Next 30 days</option>
-                            </select>
-                            <button id="calendar-refresh-btn" class="btn btn-secondary">Refresh</button>
-                        </div>
-                    </div>
-                    <div id="calendar-container" class="calendar-container">
-                        <p class="empty-message">Upcoming episodes from your library will appear here.</p>
-                    </div>
-                </section>
-
-                <!-- Playlists Section -->
-                <section id="playlists-section" class="content-section">
-                    <!-- Playlists List View -->
-                    <div id="playlists-list-view">
-                        <div class="playlists-header">
-                            <h2>Your Playlists</h2>
-                            <button id="create-playlist-btn" class="btn btn-primary">Create Playlist</button>
-                        </div>
-                        <div id="playlists-grid" class="playlists-grid">
-                            <p class="empty-message">No playlists yet. Create one to get started!</p>
-                        </div>
-                    </div>
-
-                    <!-- Playlist Detail View -->
-                    <div id="playlist-detail-view" style="display: none;">
-                        <button id="playlist-back-btn" class="back-btn">
-                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                                <path d="M10 20L0 10L10 0L11.775 1.775L3.55 10L11.775 18.225L10 20Z"/>
-                            </svg>
-                            Back to Playlists
-                        </button>
-                        <div class="playlist-detail-header">
-                            <div class="playlist-detail-icon">
-                                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M9 18V5l12-2v13M9 18l-4 1V6l4-1M9 18l12-2M9 9l12-2"/>
-                                </svg>
-                            </div>
-                            <div class="playlist-detail-info">
-                                <h2 id="playlist-detail-title">Playlist Name</h2>
-                                <p id="playlist-detail-description" class="playlist-detail-description"></p>
-                                <p id="playlist-detail-count" class="playlist-detail-meta">0 items</p>
-                            </div>
-                        </div>
-                        <div id="playlist-detail-items" class="playlist-items">
-                            <!-- Playlist items will be loaded here -->
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Add-ons Section -->
-                <section id="addons-section" class="content-section">
-                    <div class="addons-header">
-                        <h2>Add-ons</h2>
-                        <div class="tabs">
-                            <button class="tab-btn active" data-tab="installed">Installed</button>
-                            <button class="tab-btn" data-tab="store">Discover Store</button>
-                        </div>
-                    </div>
-
-                    <!-- Installed Tab -->
-                    <div id="installed-addons-tab" class="tab-content active">
-                        <div id="addons-list" class="addons-grid">
-                            <p class="empty-message">Loading add-ons...</p>
-                        </div>
-                    </div>
-
-                    <!-- Store Tab -->
-                    <div id="store-addons-tab" class="tab-content" style="display: none;">
-                        <!-- Install from URL Section -->
-                        <div class="manifest-url-section">
-                            <h3>📦 Install from Manifest URL</h3>
-                            <p class="section-description">Install addons directly from their manifest URL (Stremio-compatible)</p>
-                            <div class="manifest-url-input-group">
-                                <input 
-                                    type="url" 
-                                    id="manifest-url-input" 
-                                    class="manifest-url-input" 
-                                    placeholder="https://tmdb-addon.strem.io/manifest.json"
-                                    aria-label="Addon manifest URL"
-                                />
-                                <button id="preview-manifest-btn" class="btn btn-secondary">Preview</button>
-                                <button id="install-from-url-btn" class="btn btn-primary">Install</button>
-                            </div>
-                            <div class="url-examples">
-                                <p class="example-title">Quick Install:</p>
-<button class="url-example-btn" data-url="https://v3-cinemeta.strem.io/manifest.json">Cinemeta (TMDB)</button>
-                                <button class="url-example-btn" data-url="https://watchhub.strem.io/manifest.json">WatchHub</button>
-                                <button class="url-example-btn" data-url="https://opensubtitles.strem.io/manifest.json">OpenSubtitles</button>
-                            </div>
-                        </div>
-
-                        <!-- Store Header -->
-                        <div class="store-header">
-                            <h3>🏪 Community Addons</h3>
-                            <div class="store-search-bar">
-                                <input type="text" id="store-search-input" class="store-search-input" placeholder="Search addons..." />
-                                <button id="store-search-btn" class="btn btn-secondary">Search</button>
-                            </div>
-                        </div>
-
-                        <!-- Store Filters -->
-                        <div class="store-filters">
-                            <select id="store-category-filter" class="store-filter-select">
-                                <option value="all">All Categories</option>
-                                <option value="movies">Movies</option>
-                                <option value="series">TV Series</option>
-                                <option value="anime">Anime</option>
-                                <option value="documentaries">Documentaries</option>
-                                <option value="subtitles">Subtitles</option>
-                                <option value="general">General</option>
-                            </select>
-                            <select id="store-sort-filter" class="store-filter-select">
-                                <option value="featured">Featured</option>
-                                <option value="popular">Most Popular</option>
-                                <option value="rating">Highest Rated</option>
-                                <option value="newest">Newest</option>
-                                <option value="name">Name (A-Z)</option>
-                            </select>
-                            <label class="store-filter-checkbox">
-                                <input type="checkbox" id="store-verified-only" />
-                                <span>Verified only</span>
-                            </label>
-                        </div>
-
-                        <!-- Store Grid -->
-                        <div id="store-addons-grid" class="store-grid">
-                            <p class="empty-message">Loading store addons...</p>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Media Detail Section -->
-                <section id="detail-section" class="content-section">
-                    <div class="detail-container">
-                        <button class="back-btn" id="detail-back-btn">
-                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                                <path d="M10 20L0 10L10 0L11.775 1.775L3.55 10L11.775 18.225L10 20Z"/>
-                            </svg>
-                            Back
-                        </button>
-                        
-                        <div class="detail-hero" id="detail-hero">
-                            <!-- Backdrop will be inserted here -->
-                        </div>
-                        
-                        <div class="detail-content" id="detail-content">
-                            <!-- Detail info will be inserted here -->
-                        </div>
-                        
-                        <!-- Video Player -->
-                        <div id="video-player-container" class="video-player-container" style="display: none;">
-                            <div class="player-header">
-                                <button class="close-player-btn" id="close-player-btn">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                            <div class="player-controls-extras">
+                                <div id="cast-button-mount"></div>
+                                <button id="external-player-btn" class="external-player-btn" title="Open in External Player" style="display: none;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/>
                                     </svg>
                                 </button>
-                                <div style="display: flex; flex-direction: column; gap: 4px;">
-                                    <h3 id="player-title">Now Playing</h3>
-                                    <div id="playlist-queue-info" style="display: none; font-size: 0.85em; opacity: 0.7;"></div>
+                                <button id="pip-btn" class="pip-btn" title="Picture-in-Picture (P)">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
+                                    </svg>
+                                </button>
+                                <div id="quality-selector" class="quality-selector"></div>
+                                <div id="speed-selector" class="speed-selector">
+                                    <button id="speed-toggle-btn" title="Playback Speed">1x</button>
                                 </div>
-                                <div class="player-controls-extras">
-                                    <!-- Cast Button (Svelte component will mount here) -->
-                                    <div id="cast-button-mount"></div>
-                                    
-                                    <button id="external-player-btn" class="external-player-btn" title="Open in External Player" style="display: none;">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
-                                        </svg>
-                                    </button>
-                                    <button id="pip-btn" class="pip-btn" title="Picture-in-Picture (P)">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
-                                        </svg>
-                                    </button>
-                                    <div id="quality-selector" class="quality-selector"></div>
-                                    <div id="speed-selector" class="speed-selector">
-                                        <button id="speed-toggle-btn" title="Playback Speed">1x</button>
-                                    </div>
-                                    <div id="subtitle-selector" class="subtitle-selector">
-                                        <button id="subtitle-toggle-btn">CC</button>
-                                    </div>
+                                <div id="subtitle-selector" class="subtitle-selector">
+                                    <button id="subtitle-toggle-btn">CC</button>
                                 </div>
                             </div>
-                            <video id="video-player" controls crossorigin="anonymous">
-                                <source id="video-source" src="" type="video/mp4">
-                                Your browser does not support the video tag.
-                            </video>
-                            <div class="player-shortcuts-hint">
-                                <small>⌨️ Shortcuts: Space/K=Play/Pause | P=PiP | F=Fullscreen | M=Mute | ←/→=Seek | ↑/↓=Volume | ESC=Close</small>
-                            </div>
+                        </div>
+                        <video id="video-player" controls crossorigin="anonymous">
+                            <source id="video-source" src="" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="player-shortcuts-hint">
+                            <small>⌨️ Shortcuts: Space/K=Play/Pause | P=PiP | F=Fullscreen | M=Mute | ←/→=Seek | ↑/↓=Volume | ESC=Close</small>
                         </div>
                     </div>
                 </section>

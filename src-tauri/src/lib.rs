@@ -585,6 +585,52 @@ async fn get_subtitles(
     Ok(subs)
 }
 
+// Ratings and skip segments commands
+#[tauri::command]
+async fn rate_addon(addon_id: String, rating: u8, state: tauri::State<'_, AppState>) -> Result<AddonRatingSummary, String> {
+    let db = state.inner().db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.upsert_addon_rating("default_user", &addon_id, rating as i32).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_addon_rating(addon_id: String, state: tauri::State<'_, AppState>) -> Result<AddonRatingSummary, String> {
+    let db = state.inner().db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_addon_rating_summary(&addon_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .ok_or_else(|| "No rating available".to_string())
+}
+
+#[tauri::command]
+async fn save_skip_segments(media_id: String, segments: SkipSegments, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let db = state.inner().db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.upsert_skip_segments(&media_id, &segments).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_skip_segments(media_id: String, state: tauri::State<'_, AppState>) -> Result<Option<SkipSegments>, String> {
+    let db = state.inner().db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.get_skip_segments(&media_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 #[tauri::command]
 async fn get_addon_meta(
     content_id: String,
@@ -1629,6 +1675,51 @@ async fn get_addon_health(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
+// Torrent streaming commands
+#[tauri::command]
+async fn start_torrent_stream(
+    magnet_or_url: String,
+    file_index: Option<usize>,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let server = state
+        .inner()
+        .streaming_server
+        .as_ref()
+        .ok_or_else(|| "Streaming server not available".to_string())?
+        .clone();
+
+    let info = server
+        .add_torrent(&magnet_or_url, file_index)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Select a video file (first is_video if file_index wasn't specified)
+    let selected_index = if let Some(idx) = file_index {
+        idx
+    } else {
+        info.files
+            .iter()
+            .find(|f| f.is_video)
+            .map(|f| f.index)
+            .ok_or_else(|| "No video file found in torrent".to_string())?
+    };
+
+    // Build a direct file URL based on the server's advertised play_url
+    // info.play_url looks like http://127.0.0.1:8765/streams/{id}/play
+    let base = info
+        .play_url
+        .ok_or_else(|| "No play URL available for this torrent".to_string())?;
+    let file_url = if let Some(prefix) = base.strip_suffix("/play") {
+        format!("{}/file/{}", prefix, selected_index)
+    } else {
+        // Fallback: assume /streams/{id} prefix
+        format!("{}/file/{}", base, selected_index)
+    };
+
+    Ok(file_url)
+}
+
 // Local media commands - removed duplicates (DB-integrated versions are defined later)
 
 // Subtitle auto-fetch commands
@@ -2112,7 +2203,7 @@ pub fn run() {
     };
 
     tauri::Builder::default()
-        // .plugin(tauri_plugin_updater::Builder::new().build())  // Disabled - no code signing
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .setup(|app| {
             // Initialize application data directories
@@ -2129,6 +2220,16 @@ pub fn run() {
             let state = app.state::<AppState>();
             let db_arc = state.db.clone();
             let watcher_opt = state.folder_watcher.clone();
+
+            // Start streaming server in background
+            if let Some(server) = state.streaming_server.clone() {
+                let server_clone = server.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = server_clone.start().await {
+                        tracing::error!(error = %e, "Streaming server encountered an error");
+                    }
+                });
+            }
 
             if let Some(watcher) = watcher_opt {
                 tauri::async_runtime::spawn(async move {
@@ -2225,6 +2326,12 @@ pub fn run() {
             reset_performance_metrics,
             get_addon_health_summaries,
             get_addon_health,
+            start_torrent_stream,
+            // Ratings & skip segments
+            rate_addon,
+            get_addon_rating,
+            save_skip_segments,
+            get_skip_segments,
             auto_disable_unhealthy_addons,
             // Local media scanning
             scan_local_folder,

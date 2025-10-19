@@ -6,6 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from './ui-utils';
 import { addonManifestLoader } from './addon-manifest-loader';
+import AddonCatalog from './components/AddonCatalog.svelte';
 
 export interface StoreAddon {
     id: string;
@@ -80,6 +81,7 @@ export class AddonStore {
     private addons: StoreAddon[] = [];
     private filteredAddons: StoreAddon[] = [];
     private installedAddonIds: Set<string> = new Set();
+    private addonCatalogComponent: AddonCatalog | null = null;
 
     constructor() {
         this.setupTabSwitching();
@@ -116,6 +118,7 @@ export class AddonStore {
                 // Load store addons when switching to store tab
                 if (tabName === 'store') {
                     this.loadStoreAddons();
+                    this.mountAddonCatalog();
                 }
             });
         });
@@ -423,4 +426,35 @@ ${info.description}`;
         if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
         return num.toString();
     }
+
+    /**
+     * Mount the AddonCatalog Svelte component
+     */
+    private mountAddonCatalog(): void {
+        const mountPoint = document.getElementById('addon-catalog-mount');
+        if (!mountPoint) return;
+
+        // Clear existing content
+        mountPoint.innerHTML = '';
+
+        // Only mount if not already mounted
+        if (this.addonCatalogComponent) {
+            return;
+        }
+
+        try {
+            // Mount the Svelte component
+            this.addonCatalogComponent = new AddonCatalog({
+                target: mountPoint,
+                props: {
+                    // You can pass props here if needed
+                }
+            });
+
+            console.log('✅ AddonCatalog component mounted successfully');
+        } catch (error) {
+            console.error('❌ Failed to mount AddonCatalog component:', error);
+        }
+    }
+
 }

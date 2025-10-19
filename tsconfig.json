@@ -26,8 +26,14 @@
     }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", "src-tauri"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src-tauri",
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts"
+  ],
   
   /* Svelte support */
-  "types": ["svelte"]
+  "types": ["svelte", "vite/client"]
 }

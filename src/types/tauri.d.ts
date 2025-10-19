@@ -29,6 +29,8 @@ export interface UserPreferences {
   // General
   theme: string;
   language: string;
+  ui_language: string;
+  region: string;
   notifications_enabled: boolean;
   auto_update: boolean;
   
@@ -481,6 +483,9 @@ get_streams: { args: { contentId: string; mediaType?: string }; return: StreamWi
 
   // Calendar
   get_calendar: { args: { daysAhead?: number }; return: CalendarEntry[] };
+
+  // Torrent streaming
+  start_torrent_stream: { args: { magnetOrUrl: string; fileIndex?: number }; return: string };
 }
 
 // Global Tauri API

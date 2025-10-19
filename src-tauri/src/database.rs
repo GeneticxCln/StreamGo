@@ -756,8 +756,90 @@ impl Database {
         }
         Ok(items)
     }
+    // Ratings and skip segments
+    pub fn upsert_addon_rating(&self, user_id: &str, addon_id: &str, rating: i32) -> Result<crate::models::AddonRatingSummary, anyhow::Error> {
+        if rating < 1 || rating > 5 {
+            return Err(anyhow!("Rating must be between 1 and 5"));
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO addon_ratings (addon_id, user_id, rating, rated_at) VALUES (?1, ?2, ?3, ?4)",
+            params![addon_id, user_id, rating, now],
+        )?;
+        // Recompute summary
+        self.recompute_addon_rating_summary(addon_id)?;
+        self.get_addon_rating_summary(addon_id).map(|opt| opt.unwrap_or(crate::models::AddonRatingSummary{ addon_id: addon_id.to_string(), rating_avg: 0.0, rating_count: 0, weighted_rating: 0.0 }))
+    }
+
+    fn recompute_addon_rating_summary(&self, addon_id: &str) -> Result<(), anyhow::Error> {
+        // Compute average and count
+        let mut stmt = self.conn.prepare("SELECT COUNT(*), AVG(rating) FROM addon_ratings WHERE addon_id = ?1")?;
+        let (count, avg):(i64, Option<f64>) = stmt.query_row(params![addon_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let avg_val = avg.unwrap_or(0.0);
+        // Bayesian weighted rating: prior m=5 votes at C=3.7
+        let m = 5.0;
+        let c = 3.7;
+        let v = count as f64;
+        let r = avg_val;
+        let weighted = if v > 0.0 { (v/(v+m))*r + (m/(v+m))*c } else { 0.0 };
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO addon_rating_summary (addon_id, rating_avg, rating_count, weighted_rating, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![addon_id, avg_val, count, weighted, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_addon_rating_summary(&self, addon_id: &str) -> Result<Option<crate::models::AddonRatingSummary>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT addon_id, rating_avg, rating_count, weighted_rating FROM addon_rating_summary WHERE addon_id = ?1"
+        )?;
+        let mut rows = stmt.query(params![addon_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(crate::models::AddonRatingSummary{
+                addon_id: row.get(0)?,
+                rating_avg: row.get(1)?,
+                rating_count: row.get(2)?,
+                weighted_rating: row.get(3)?,
+            }))
+        } else { Ok(None) }
+    }
+
+    pub fn upsert_skip_segments(&self, media_id: &str, segments: &crate::models::SkipSegments) -> Result<(), anyhow::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO skip_segments (media_id, intro_start, intro_end, outro_start, outro_end, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                media_id,
+                segments.intro_start,
+                segments.intro_end,
+                segments.outro_start,
+                segments.outro_end,
+                now
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_skip_segments(&self, media_id: &str) -> Result<Option<crate::models::SkipSegments>, anyhow::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT intro_start, intro_end, outro_start, outro_end FROM skip_segments WHERE media_id = ?1"
+        )?;
+        let mut rows = stmt.query(params![media_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(crate::models::SkipSegments{
+                intro_start: row.get(0)?,
+                intro_end: row.get(1)?,
+                outro_start: row.get(2)?,
+                outro_end: row.get(3)?,
+            }))
+        } else { Ok(None) }
+    }
 
     // Helper method to query media items
+    fn query_media_items(
+        &self,
     fn query_media_items(
         &self,
         mut stmt: rusqlite::Statement,

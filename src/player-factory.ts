@@ -11,12 +11,10 @@ import type { VideoPlayer, PlayerOptions } from './player';
 // Type imports (these don't increase bundle size)
 type HlsType = typeof import('hls.js').default;
 type DashPlayerType = typeof import('./dash-player').DashPlayer;
-type TorrentPlayerType = typeof import('./torrent-player').TorrentPlayer;
 
 // Cached modules to avoid re-importing
 let hlsModule: HlsType | null = null;
 let DashPlayerClass: DashPlayerType | null = null;
-let TorrentPlayerClass: TorrentPlayerType | null = null;
 let VideoPlayerClass: typeof VideoPlayer | null = null;
 
 /**
@@ -64,7 +62,7 @@ class LazyPlayerFactory implements PlayerFactory {
         await this.loadDashPlayer();
         break;
       case 'torrent':
-        await this.loadTorrentPlayer();
+        // Torrent now streams via backend HTTP; no browser-side module preload needed
         break;
       case 'direct':
         // No additional modules needed for direct video
@@ -82,7 +80,7 @@ class LazyPlayerFactory implements PlayerFactory {
       case 'dash':
         return true; // dash.js support
       case 'torrent':
-        return true; // WebTorrent support
+        return true; // Backend HTTP stream support
       case 'direct':
         return true; // Native video support
       default:
@@ -149,27 +147,7 @@ class LazyPlayerFactory implements PlayerFactory {
     return this.loadingPromises.get(cacheKey)!;
   }
 
-  /**
-   * Load WebTorrent player module
-   */
-  private async loadTorrentPlayer(): Promise<TorrentPlayerType> {
-    if (TorrentPlayerClass) return TorrentPlayerClass;
-
-    const cacheKey = 'torrent';
-    
-    if (!this.loadingPromises.has(cacheKey)) {
-      console.log('🎬 Loading WebTorrent player module...');
-      this.loadingPromises.set(cacheKey,
-        import('./torrent-player').then(module => {
-          TorrentPlayerClass = module.TorrentPlayer;
-          console.log('✅ WebTorrent player module loaded');
-          return TorrentPlayerClass!;
-        })
-      );
-    }
-
-    return this.loadingPromises.get(cacheKey)!;
-  }
+  // No torrent player lazy-load needed; torrent handled by backend
 }
 
 // Export singleton instance

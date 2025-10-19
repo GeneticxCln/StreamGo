@@ -2,11 +2,13 @@
 // All heavy dependencies are lazy-loaded only when needed to reduce initial bundle size
 type HlsType = typeof import('hls.js').default;
 type DashPlayerType = typeof import('./dash-player').DashPlayer;
-type TorrentPlayerType = typeof import('./torrent-player').TorrentPlayer;
 import { detectStreamFormat } from './stream-format-detector';
 import { convertSRTtoVTT, adjustTimestamps } from './subtitle-parser';
 import { showToast } from './ui-utils';
 import { playerStore } from './stores/player';
+import { invoke } from '@tauri-apps/api/core';
+import { SkipDetector } from './skip-detector';
+import type { MediaItem } from './types/tauri';
 
 
 export interface PlayerOptions {
@@ -28,13 +30,11 @@ export class VideoPlayer {
     private video: HTMLVideoElement;
     private hls: InstanceType<HlsType> | null = null;
     private dashPlayer: InstanceType<DashPlayerType> | null = null;
-    private torrentPlayer: InstanceType<TorrentPlayerType> | null = null;
     private onCloseCallback?: () => void;
     private playlistContext: PlaylistContext | null = null;
     private isPipActive: boolean = false;
     private hlsModule: HlsType | null = null;
     private DashPlayerClass: DashPlayerType | null = null;
-    private TorrentPlayerClass: TorrentPlayerType | null = null;
     private localSubtitleBlobs: string[] = [];
     private subtitleOffset: number = 0; // in seconds
     private originalSubtitleContent: Map<string, string> = new Map(); // Map<track.src, originalVttContent>
@@ -51,6 +51,7 @@ export class VideoPlayer {
     private retryCount: number = 0;
     private maxRetries: number = 3;
     private retryDelay: number = 1000; // Start with 1 second
+    private skipDetector: SkipDetector | null = null;
 
     constructor(options: PlayerOptions) {
         this.container = options.container;
@@ -83,6 +84,9 @@ export class VideoPlayer {
         // Setup network-adaptive quality
         this.setupNetworkAdaptive();
 
+        // Setup skip detector
+        this.skipDetector = new SkipDetector(this.video, playerStore);
+
         // Reset retry counter when playback resumes
         this.video.addEventListener('playing', () => this.resetRetryCounter());
         
@@ -94,6 +98,21 @@ export class VideoPlayer {
             window.dispatchEvent(new CustomEvent('streamgo:player-ready'));
             console.log('🎬 Player ready event dispatched');
         }, 100);
+    }
+
+    /**
+     * Provide current media context for better UX (e.g., skip detection)
+     */
+    setCurrentMedia(media: Pick<MediaItem, 'id' | 'title' | 'duration' | 'media_type'>) {
+        if (this.skipDetector) {
+            const duration = typeof media.duration === 'number' ? media.duration * 60 : (this.video?.duration || 0);
+            // duration in seconds (media.duration stored as minutes in many places)
+            this.skipDetector.setMedia({
+                id: media.id,
+                duration: duration,
+                type: typeof media.media_type === 'string' ? media.media_type : 'unknown',
+            });
+        }
     }
 
     /**
@@ -127,6 +146,26 @@ export class VideoPlayer {
     }
 
     /**
+     * Skip currently active intro/outro segment if any
+     */
+    skipActiveSegment() {
+        // Read active skip from store synchronously
+        let active = null as any;
+        playerStore.update(s => { active = s.activeSkip; return s; });
+        if (active) {
+            this.video.currentTime = Math.min(this.video.duration || active.end, active.end);
+            playerStore.clearActiveSkip();
+        }
+    }
+
+    /**
+     * Skip to arbitrary time (helper for UI)
+     */
+    skipTo(seconds: number) {
+        this.video.currentTime = Math.min(this.video.duration || seconds, seconds);
+    }
+
+    /**
      * Detects stream format and loads the appropriate player.
      */
     private async loadStream(url: string) {
@@ -140,8 +179,8 @@ export class VideoPlayer {
 
         switch (format) {
             case 'torrent':
-                console.log('Torrent/Magnet link detected. Initializing WebTorrent...');
-                this.loadTorrentStream(url);
+                console.log('Torrent/Magnet link detected. Initializing Rust backend stream...');
+                await this.loadTorrentHttp(url);
                 break;
 
             case 'dash':
@@ -250,22 +289,20 @@ export class VideoPlayer {
     }
 
     /**
-     * Load torrent/magnet stream using WebTorrent (lazy-loaded)
+     * Load torrent/magnet via Rust backend HTTP streaming
      */
-    private async loadTorrentStream(magnetOrTorrent: string): Promise<void> {
-        // Lazy load TorrentPlayer only when needed
-        if (!this.TorrentPlayerClass) {
-            console.log('Loading WebTorrent player module...');
-            const torrentModule = await import('./torrent-player');
-            this.TorrentPlayerClass = torrentModule.TorrentPlayer;
+    private async loadTorrentHttp(magnetOrTorrent: string): Promise<void> {
+        try {
+            const playUrl = await invoke<string>('start_torrent_stream', {
+                magnet_or_url: magnetOrTorrent,
+                // file_index can be provided if UI exposes selection
+            });
+            console.log('Received play URL from backend:', playUrl);
+            this.loadRegularVideo(playUrl as string);
+        } catch (err) {
+            console.error('Failed to start torrent stream:', err);
+            showToast('Failed to start torrent stream', 'error');
         }
-
-        this.torrentPlayer = new this.TorrentPlayerClass(this.video);
-        this.setupTorrentStatsUI();
-
-        this.torrentPlayer.load(magnetOrTorrent, (stats: any) => {
-            this.updateTorrentStatsUI(stats);
-        });
     }
 
     /**
@@ -558,10 +595,7 @@ export class VideoPlayer {
             this.dashPlayer.destroy();
             this.dashPlayer = null;
         }
-        if (this.torrentPlayer) {
-            this.torrentPlayer.destroy();
-            this.torrentPlayer = null;
-        }
+        // Torrent cleanup is handled by backend; UI stats (if any) can be hidden
         this.hideTorrentStatsUI();
         
         // Clear quality selector if it exists (backward compatibility)
@@ -1112,50 +1146,6 @@ export class VideoPlayer {
         }
     }
 
-    /**
-     * Setup torrent stats UI
-     */
-    private setupTorrentStatsUI(): void {
-        // Check if the stats container already exists
-        let statsContainer = document.getElementById('torrent-stats');
-        if (!statsContainer) {
-            statsContainer = document.createElement('div');
-            statsContainer.id = 'torrent-stats';
-            statsContainer.style.cssText = `
-                position: absolute;
-                top: 60px;
-                right: 20px;
-                background: rgba(0, 0, 0, 0.8);
-                color: white;
-                padding: 15px;
-                border-radius: 8px;
-                font-size: 12px;
-                font-family: monospace;
-                z-index: 1000;
-                min-width: 200px;
-            `;
-            this.container.appendChild(statsContainer);
-        }
-        this.torrentStatsElement = statsContainer;
-        statsContainer.style.display = 'block';
-    }
-
-    /**
-     * Update torrent stats UI
-     */
-    private updateTorrentStatsUI(stats: any): void {
-        if (!this.torrentStatsElement || !this.TorrentPlayerClass) return;
-
-        this.torrentStatsElement.innerHTML = `
-            <div style="margin-bottom: 8px; font-weight: bold; color: #4CAF50;">📊 Torrent Stats</div>
-            <div>⬇️ Download: ${this.TorrentPlayerClass.formatSpeed(stats.downloadSpeed)}</div>
-            <div>⬆️ Upload: ${this.TorrentPlayerClass.formatSpeed(stats.uploadSpeed)}</div>
-            <div>👥 Peers: ${stats.numPeers}</div>
-            <div>📥 Downloaded: ${this.TorrentPlayerClass.formatBytes(stats.downloaded)}</div>
-            <div>📤 Uploaded: ${this.TorrentPlayerClass.formatBytes(stats.uploaded)}</div>
-            <div>⏳ Progress: ${(stats.progress * 100).toFixed(1)}%</div>
-        `;
-    }
 
     /**
      * Hide torrent stats UI

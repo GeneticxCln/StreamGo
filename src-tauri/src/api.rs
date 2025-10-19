@@ -203,9 +203,9 @@ pub async fn install_addon(addon_url: &str) -> Result<Addon> {
     // Validate base URL format and scheme
     let parsed_url = url::Url::parse(&base).map_err(|e| anyhow!("Invalid addon URL: {}", e))?;
     
-    // Only allow http and https
-    if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
-        return Err(anyhow!("Addon URL must use http or https protocol"));
+    // Enforce HTTPS for production security
+    if parsed_url.scheme() != "https" {
+        return Err(anyhow!("Addon URL must use https protocol"));
     }
 
     // Prevent SSRF attacks by blocking private/local IP ranges

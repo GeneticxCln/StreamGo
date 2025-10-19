@@ -20,6 +20,8 @@ const DEFAULT_SETTINGS: UserPreferences = {
   version: 1,
   theme: 'dark',
   language: 'en',
+  ui_language: 'en',
+  region: 'auto',
   autoplay: true,
   quality: 'auto',
   subtitle_language: 'en',

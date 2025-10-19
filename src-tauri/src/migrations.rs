@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 /// Current schema version
-pub const CURRENT_SCHEMA_VERSION: u32 = 9;
+pub const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 /// Migration trait for implementing version upgrades
 pub trait Migration {
@@ -702,6 +702,9 @@ impl Migration008LocalMedia {
 /// Migration v9: Live TV channels and EPG tables
 struct Migration009LiveTv;
 
+/// Migration v10: Add addon ratings and skip segments tables
+struct Migration010RatingsAndSkips;
+
 impl Migration for Migration009LiveTv {
     fn version(&self) -> u32 { 9 }
     fn description(&self) -> &str { "Add live TV channels and EPG tables" }
@@ -754,6 +757,58 @@ impl Migration for Migration009LiveTv {
     }
 }
 
+impl Migration for Migration010RatingsAndSkips {
+    fn version(&self) -> u32 { 10 }
+    fn description(&self) -> &str { "Add addon ratings and skip segments tables" }
+    fn up(&self, conn: &Connection) -> Result<()> {
+        // Addon ratings (per-user)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS addon_ratings (
+                addon_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+                rated_at TEXT NOT NULL,
+                PRIMARY KEY (addon_id, user_id),
+                FOREIGN KEY (addon_id) REFERENCES addons(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Addon rating summary (aggregated + weighted)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS addon_rating_summary (
+                addon_id TEXT PRIMARY KEY,
+                rating_avg REAL NOT NULL DEFAULT 0,
+                rating_count INTEGER NOT NULL DEFAULT 0,
+                weighted_rating REAL NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (addon_id) REFERENCES addons(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_addon_ratings_addon ON addon_ratings(addon_id)",
+            [],
+        )?;
+
+        // Skip segments per media item
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS skip_segments (
+                media_id TEXT PRIMARY KEY,
+                intro_start REAL,
+                intro_end REAL,
+                outro_start REAL,
+                outro_end REAL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        Ok(())
+    }
+}
+
 /// Migration runner
 pub struct MigrationRunner {
     migrations: Vec<Box<dyn Migration>>,
@@ -771,6 +826,7 @@ impl MigrationRunner {
             Box::new(Migration007FTS5Search),
             Box::new(Migration008LocalMedia),
             Box::new(Migration009LiveTv),
+            Box::new(Migration010RatingsAndSkips),
         ];
         Self { migrations }
     }

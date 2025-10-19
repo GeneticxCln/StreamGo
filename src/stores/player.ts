@@ -37,6 +37,11 @@ export interface PlayerState {
     };
   } | null;
   showStats: boolean;
+  skipSegments: {
+    intro?: { start: number; end: number };
+    outro?: { start: number; end: number };
+  };
+  activeSkip: { type: 'intro' | 'outro'; start: number; end: number } | null;
 }
 
 const defaultStats = {
@@ -70,6 +75,8 @@ const initialState: PlayerState = {
   subtitleOffset: 0,
   stats: defaultStats,
   showStats: false,
+  skipSegments: {},
+  activeSkip: null,
 };
 
 function createPlayerStore() {
@@ -122,6 +129,15 @@ function createPlayerStore() {
     toggleStats: () => 
       update(state => ({ ...state, showStats: !state.showStats })),
     
+    setSkipSegments: (segments: PlayerState['skipSegments']) =>
+      update(state => ({ ...state, skipSegments: segments })),
+
+    setActiveSkip: (active: PlayerState['activeSkip']) =>
+      update(state => ({ ...state, activeSkip: active })),
+
+    clearActiveSkip: () =>
+      update(state => ({ ...state, activeSkip: null })),
+
     reset: () => set(initialState),
   };
 }

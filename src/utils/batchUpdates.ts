@@ -28,10 +28,10 @@ export function scheduleUpdate(callback: () => void): void {
 /**
  * Debounce a function call
  */
-export function debounce<T extends (...args: any[]) => void>(
+export function debounce<T extends (..._args: any[]) => void>(
   func: T,
   wait: number
-): (...args: Parameters<T>) => void {
+): (..._args: Parameters<T>) => void {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   
   return function(this: any, ...args: Parameters<T>) {
@@ -50,10 +50,10 @@ export function debounce<T extends (...args: any[]) => void>(
 /**
  * Throttle a function call to run at most once per specified time
  */
-export function throttle<T extends (...args: any[]) => void>(
+export function throttle<T extends (..._args: any[]) => void>(
   func: T,
   limit: number
-): (...args: Parameters<T>) => void {
+): (..._args: Parameters<T>) => void {
   let inThrottle = false;
   
   return function(this: any, ...args: Parameters<T>) {

@@ -364,6 +364,24 @@ pub struct AddonHealthSummary {
     pub health_score: f64,
 }
 
+// New: Skip segments for media items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkipSegments {
+    #[serde(skip_serializing_if = "Option::is_none")] pub intro_start: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub intro_end: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub outro_start: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub outro_end: Option<f64>,
+}
+
+// New: Addon rating summary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddonRatingSummary {
+    pub addon_id: String,
+    pub rating_avg: f64,
+    pub rating_count: i64,
+    pub weighted_rating: f64,
+}
+
 // Live TV models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveTvChannel {

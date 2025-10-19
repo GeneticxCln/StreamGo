@@ -33,7 +33,7 @@ tracing-appender = "0.2"
 # Tauri dependencies
 tauri = { version = "2.4.1", features = [] }
 tauri-plugin-log = "2.4.0"
-# tauri-plugin-updater = "2.4.0"  # Disabled - no code signing certificates
+tauri-plugin-updater = "2.4.0"
 tauri-plugin-process = "2.3.0"
 tauri-plugin-notification = "2.3.1"
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { settingsStore, hasUnsavedChanges } from '../../stores/settings';
+  import ProfileManager from '../ProfileManager.svelte';
   
   // Reactive values for sliders
   let playbackSpeed = 1.0;
@@ -42,6 +43,13 @@
     if (confirm('Reset all settings to defaults?')) {
       settingsStore.reset();
     }
+  }
+
+  // Handle profile switch
+  function handleProfileSwitch(event: any) {
+    console.log('Profile switched:', event.detail);
+    // Reload settings for the new profile
+    settingsStore.load();
   }
 </script>
 
@@ -160,14 +168,72 @@
         </div>
       </div>
 
+      <!-- Language & Region -->
+      <div class="settings-section">
+        <h3>🌐 Language & Region</h3>
+
+        <div class="setting-item">
+          <label for="ui-language">Interface Language</label>
+          <select
+            id="ui-language"
+            class="setting-select"
+            bind:value={$settingsStore.settings.ui_language}
+            on:change={() => settingsStore.updateSetting('ui_language', $settingsStore.settings!.ui_language)}
+          >
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+            <option value="ru">Русский</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+            <option value="zh">简体中文</option>
+            <option value="ar">العربية</option>
+            <option value="hi">हिन्दी</option>
+          </select>
+          <span class="setting-description">Language for the user interface</span>
+        </div>
+
+        <div class="setting-item">
+          <label for="region">Region</label>
+          <select
+            id="region"
+            class="setting-select"
+            bind:value={$settingsStore.settings.region}
+            on:change={() => settingsStore.updateSetting('region', $settingsStore.settings!.region)}
+          >
+            <option value="auto">Auto (System)</option>
+            <option value="US">United States</option>
+            <option value="GB">United Kingdom</option>
+            <option value="CA">Canada</option>
+            <option value="AU">Australia</option>
+            <option value="DE">Germany</option>
+            <option value="FR">France</option>
+            <option value="IT">Italy</option>
+            <option value="ES">Spain</option>
+            <option value="JP">Japan</option>
+            <option value="KR">South Korea</option>
+            <option value="CN">China</option>
+            <option value="IN">India</option>
+            <option value="BR">Brazil</option>
+            <option value="MX">Mexico</option>
+            <option value="AR">Argentina</option>
+            <option value="RU">Russia</option>
+          </select>
+          <span class="setting-description">Regional settings for content and formatting</span>
+        </div>
+      </div>
+
       <!-- Subtitles -->
       <div class="settings-section">
         <h3>📝 Subtitles</h3>
-        
+
         <div class="setting-item">
           <label for="subtitle-language">Subtitle Language</label>
-          <select 
-            id="subtitle-language" 
+          <select
+            id="subtitle-language"
             class="setting-select"
             bind:value={$settingsStore.settings.subtitle_language}
             on:change={() => settingsStore.updateSetting('subtitle_language', $settingsStore.settings!.subtitle_language)}
@@ -256,10 +322,17 @@
         </div>
       </div>
 
+      <!-- Profile Management -->
+      <div class="settings-section">
+        <h3>👤 Profile Management</h3>
+        <p class="section-description">Manage multiple user profiles with separate settings and content</p>
+        <ProfileManager on:profileSwitched={handleProfileSwitch} />
+      </div>
+
       <!-- Action Buttons -->
       <div class="settings-actions">
-        <button 
-          class="btn btn-primary" 
+        <button
+          class="btn btn-primary"
           on:click={handleSave}
           disabled={!$hasUnsavedChanges || $settingsStore.loading}
         >
@@ -269,9 +342,9 @@
             💾 Save Settings
           {/if}
         </button>
-        
-        <button 
-          class="btn btn-secondary" 
+
+        <button
+          class="btn btn-secondary"
           on:click={handleReset}
           disabled={$settingsStore.loading}
         >

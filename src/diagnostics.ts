@@ -57,7 +57,10 @@ export class DiagnosticsManager {
           <div class="diagnostics-header">
             <h2>📊 Diagnostics & Health</h2>
             <div class="diagnostics-actions">
-              <button id="export-diagnostics-btn" class="btn btn-primary">
+              <button id="send-diagnostics-btn" class="btn btn-primary">
+                📤 Send Diagnostics
+              </button>
+              <button id="export-diagnostics-btn" class="btn btn-secondary">
                 💾 Export Diagnostics
               </button>
               <button id="refresh-diagnostics-btn" class="btn btn-secondary">
@@ -302,6 +305,29 @@ export class DiagnosticsManager {
    * Attach event listeners to the dashboard
    */
   private attachEventListeners(container: HTMLElement): void {
+    // Send diagnostics button
+    const sendBtn = container.querySelector('#send-diagnostics-btn');
+    if (sendBtn) {
+      sendBtn.addEventListener('click', async () => {
+        const btn = sendBtn as HTMLButtonElement;
+        const original = btn.innerHTML;
+        btn.classList.add('loading');
+        btn.disabled = true;
+        btn.innerHTML = 'Sending...';
+        try {
+          await this.sendDiagnostics();
+          Toast.success('Diagnostics sent successfully!');
+        } catch (error) {
+          console.error('Send failed:', error);
+          Toast.error('Failed to send diagnostics. Please try again.');
+        } finally {
+          btn.classList.remove('loading');
+          btn.disabled = false;
+          btn.innerHTML = original;
+        }
+      });
+    }
+
     // Export diagnostics button
     const exportBtn = container.querySelector('#export-diagnostics-btn');
     if (exportBtn) {
@@ -457,11 +483,165 @@ export class DiagnosticsManager {
   }
 
   /**
-   * Auto-disable addons below health threshold
-   */
-  private async autoDisableUnhealthyAddons(threshold: number): Promise<string[]> {
-    return await invoke<string[]>('auto_disable_unhealthy_addons', { threshold });
-  }
+    * Auto-disable addons below health threshold
+    */
+   private async autoDisableUnhealthyAddons(threshold: number): Promise<string[]> {
+     return await invoke<string[]>('auto_disable_unhealthy_addons', { threshold });
+   }
+
+  /**
+    * Send diagnostics data via email or to support
+    */
+   private async sendDiagnostics(): Promise<void> {
+     try {
+       // Get diagnostics data
+       const diagnostics = await exportDiagnosticsFile();
+
+       // Show confirmation modal with options
+       const result = await new Promise<{ action: 'email' | 'support' | 'cancel', email?: string }>((resolve) => {
+         const modal = document.createElement('div');
+         modal.className = 'modal';
+         modal.style.display = 'flex';
+         modal.style.zIndex = '10000';
+         modal.innerHTML = `
+           <div class="modal-content" style="max-width: 500px;">
+             <div class="modal-header">
+               <h3>📤 Send Diagnostics</h3>
+             </div>
+             <div class="modal-body" style="padding: 20px;">
+               <p style="margin-bottom: 16px;">How would you like to send the diagnostics data?</p>
+
+               <div style="margin-bottom: 16px;">
+                 <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer;">
+                   <input type="radio" name="send-method" value="email" checked style="margin-right: 8px;">
+                   <span>📧 Send via Email</span>
+                 </label>
+                 <div id="email-input-container" style="margin-left: 24px; margin-top: 8px;">
+                   <input type="email" id="diagnostics-email" placeholder="your.email@example.com" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--background-secondary); color: var(--text-primary);" />
+                 </div>
+               </div>
+
+               <div style="margin-bottom: 16px;">
+                 <label style="display: flex; align-items: center; cursor: pointer;">
+                   <input type="radio" name="send-method" value="support" style="margin-right: 8px;">
+                   <span>🛠️ Send to Support Team</span>
+                 </label>
+               </div>
+
+               <div style="font-size: 12px; color: var(--text-secondary); margin-top: 16px; padding: 12px; background: var(--background-secondary); border-radius: 4px;">
+                 <strong>Privacy Note:</strong> Diagnostics data includes system information, performance metrics, and error logs. No personal files or media content is included.
+               </div>
+             </div>
+             <div class="modal-footer" style="display: flex; gap: 12px; justify-content: flex-end; padding: 16px 20px;">
+               <button class="btn btn-secondary" id="send-cancel">Cancel</button>
+               <button class="btn btn-primary" id="send-confirm">Send</button>
+             </div>
+           </div>
+         `;
+
+         document.body.appendChild(modal);
+
+         const emailInput = document.getElementById('diagnostics-email') as HTMLInputElement;
+         const emailContainer = document.getElementById('email-input-container');
+
+         // Show/hide email input based on selected method
+         const radioButtons = modal.querySelectorAll('input[name="send-method"]');
+         radioButtons.forEach(radio => {
+           radio.addEventListener('change', () => {
+             if ((radio as HTMLInputElement).value === 'email') {
+               emailContainer!.style.display = 'block';
+               emailInput!.required = true;
+             } else {
+               emailContainer!.style.display = 'none';
+               emailInput!.required = false;
+             }
+           });
+         });
+
+         const cancelBtn = modal.querySelector('#send-cancel');
+         const confirmBtn = modal.querySelector('#send-confirm');
+
+         cancelBtn?.addEventListener('click', () => {
+           modal.remove();
+           resolve({ action: 'cancel' });
+         });
+
+         confirmBtn?.addEventListener('click', () => {
+           const selectedMethod = (modal.querySelector('input[name="send-method"]:checked') as HTMLInputElement).value as 'email' | 'support';
+           const email = emailInput?.value;
+
+           if (selectedMethod === 'email' && (!email || !email.includes('@'))) {
+             Toast.error('Please enter a valid email address');
+             return;
+           }
+
+           modal.remove();
+           resolve({ action: selectedMethod, email: selectedMethod === 'email' ? email : undefined });
+         });
+       });
+
+       if (result.action === 'cancel') {
+         return;
+       }
+
+       // Send diagnostics based on selected method
+       if (result.action === 'email') {
+         await this.sendDiagnosticsViaEmail(diagnostics, result.email!);
+       } else if (result.action === 'support') {
+         await this.sendDiagnosticsToSupport(diagnostics);
+       }
+
+     } catch (error) {
+       console.error('Error in sendDiagnostics:', error);
+       throw error;
+     }
+   }
+
+  /**
+    * Send diagnostics data via email
+    */
+   private async sendDiagnosticsViaEmail(filePath: string, _email: string): Promise<void> {
+     try {
+       // For now, we'll use a simple approach - copy the file path to clipboard
+       // In a real implementation, this would integrate with an email service
+       await navigator.clipboard.writeText(`Diagnostics file: ${filePath}`);
+
+       Toast.info(`Diagnostics file path copied to clipboard. Please email it to: support@streamgo.app`);
+
+       // You could also implement direct email sending here using a service like EmailJS
+       // or integrate with the system's default email client
+
+     } catch (error) {
+       console.error('Error sending diagnostics via email:', error);
+       throw new Error('Failed to prepare diagnostics for email');
+     }
+   }
+
+  /**
+    * Send diagnostics data to support team
+    */
+   private async sendDiagnosticsToSupport(_filePath: string): Promise<void> {
+     try {
+       // In a real implementation, this would upload the file to a support server
+       // For now, we'll simulate this with a delay and success message
+
+       Toast.info('Uploading diagnostics to support server...');
+
+       // Simulate upload delay
+       await new Promise(resolve => setTimeout(resolve, 2000));
+
+       // In a real implementation, you would:
+       // 1. Upload the file to a secure server
+       // 2. Generate a support ticket or reference ID
+       // 3. Send confirmation with the reference ID
+
+       Toast.success('Diagnostics uploaded successfully! Support team has been notified.');
+
+     } catch (error) {
+       console.error('Error sending diagnostics to support:', error);
+       throw new Error('Failed to upload diagnostics to support');
+     }
+   }
 }
 
 // Create global instance

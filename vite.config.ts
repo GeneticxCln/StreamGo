@@ -54,6 +54,9 @@ export default defineConfig({
     },
     // Manual chunk splitting for better caching and smaller initial bundles
     rollupOptions: {
+      // Externalize problematic WebTorrent dependencies that have export issues
+      // These will be loaded at runtime instead of bundled
+      external: ['bittorrent-dht', 'torrent-discovery'],
       output: {
         manualChunks(id) {
           // Vendor chunks - split heavy dependencies
